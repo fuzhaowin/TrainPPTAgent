@@ -73,7 +73,12 @@ def main(host: str, port: int, agent_url: str=""):
     )
 
     if not agent_url:
-        agent_url = f"http://{host}:{port}/"
+        # 当 HOST=0.0.0.0（容器监听全网卡）时，AgentCard 内返回 0.0.0.0 会导致下游客户端无法连接。
+        # 优先使用容器内可解析的服务名（Docker DNS），默认为 outline_api。
+        resolved_host = host
+        if host in (None, "0.0.0.0", "0.0.0.0/0"):
+            resolved_host = os.environ.get("OUTLINE_API_HOST", "outline_api")
+        agent_url = f"http://{resolved_host}:{port}/"
     # 构建 agent 卡片信息
     agent_card = AgentCard(
         name=agent_card_name,

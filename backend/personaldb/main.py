@@ -112,10 +112,12 @@ def process_and_vectorize_local_file(file_name: str, temp_file_path: str, id: in
         raise ValueError("分块后内容为空")
     logger.info(f"内容分块成功，共 {len(documents)} 块。")
 
-    # 步骤3: 检查环境变量
-    if not os.getenv("ALI_API_KEY"):
-        logger.error("ALI_API_KEY环境变量未设置")
-        raise ValueError("ALI_API_KEY环境变量未设置")
+    # 步骤3: 基础环境检查
+    provider = os.getenv("EMBEDDING_PROVIDER")
+    model = os.getenv("EMBEDDING_MODEL")
+    if not provider or not model:
+        logger.error("缺少嵌入模型配置：请设置 EMBEDDING_PROVIDER 与 EMBEDDING_MODEL")
+        raise ValueError("缺少嵌入模型配置：请设置 EMBEDDING_PROVIDER 与 EMBEDDING_MODEL")
 
     # 步骤4: 使用embedding_utils生成embedding向量并插入向量
     logger.info("初始化embedding模型")
@@ -341,9 +343,11 @@ def process_text_content(
         raise ValueError("content 不能为空")
 
     # 与现有流程保持一致的环境变量校验
-    if not os.getenv("ALI_API_KEY"):
-        logger.error("ALI_API_KEY环境变量未设置")
-        raise ValueError("ALI_API_KEY环境变量未设置")
+    provider = os.getenv("EMBEDDING_PROVIDER")
+    model = os.getenv("EMBEDDING_MODEL")
+    if not provider or not model:
+        logger.error("缺少嵌入模型配置：请设置 EMBEDDING_PROVIDER 与 EMBEDDING_MODEL")
+        raise ValueError("缺少嵌入模型配置：请设置 EMBEDDING_PROVIDER 与 EMBEDDING_MODEL")
 
     documents = _chunk_text(text)
     if not documents:

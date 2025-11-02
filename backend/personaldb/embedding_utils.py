@@ -344,7 +344,8 @@ class EmbeddingModel(object):
         - vllm:     VLLM_BASE_URL(如 http://127.0.0.1:8000/v1)，VLLM_API_KEY(可选)
         - xinference:XINFERENCE_BASE_URL(如 http://127.0.0.1:9997/v1)，XINFERENCE_API_KEY(可选)
         - ollama:   OLLAMA_BASE_URL(默认 http://127.0.0.1:11434)
-        """
++        - openai:   OPENAI_API_KEY
+         """
         self.model = os.environ["EMBEDDING_MODEL"]
         self.provider = os.environ["EMBEDDING_PROVIDER"].lower()
         self.dimensions = int(os.getenv("EMBEDDING_DIM", "0")) or None
@@ -386,6 +387,11 @@ class EmbeddingModel(object):
             self.ollama_base = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
             self.session = requests.Session()
             self._impl = self._impl_ollama_native
+        elif self.provider == "openai":
+            api_key = os.getenv("OPENAI_API_KEY")
+            assert api_key, "OPENAI_API_KEY没有设置，无法使用OpenAI嵌入模型"
+            self.client = OpenAI(api_key=api_key)
+            self._impl = self._impl_openai_compatible
         else:
             raise Exception(f"不支持的EMBEDDING_PROVIDER: {self.provider}")
 

@@ -69,7 +69,12 @@ def main(host, port, agent_url=""):
     )
     # 注意⚠️：这里Agent使用流式的输出，但是LLM模型不使用流式的输出，因为LLM使用流式的输出，在split topic时Json解析出问题
     if not agent_url:
-        agent_url = f"http://{host}:{port}/"
+        # 当 HOST=0.0.0.0（容器监听全网卡）时，AgentCard 内返回 0.0.0.0 会导致下游客户端无法连接。
+        # 优先使用容器内可解析的服务名（Docker DNS），默认为 content_api。
+        resolved_host = host
+        if host in (None, "0.0.0.0", "0.0.0.0/0"):
+            resolved_host = os.environ.get("CONTENT_API_HOST", "content_api")
+        agent_url = f"http://{resolved_host}:{port}/"
     agent_card = AgentCard(
         name=agent_card_name,
         description=agent_description,

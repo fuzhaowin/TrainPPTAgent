@@ -6,43 +6,61 @@ services:
       dockerfile: Dockerfile
     ports:
       - "6800:6800"
-    network_mode: bridge
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    env_file:
+      - ./.env
+    networks:
+      - ppt_network
+
   personaldb:
     container_name: ppt_personal_db
     build:
       context: ./backend/personaldb
       dockerfile: Dockerfile
     ports:
-      - "9200:9200"
-    network_mode: bridge
+      - "9200:9100"
     restart: unless-stopped
+    volumes:
+      - ./personaldb_data:/data
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    env_file:
+      - ./.env
+    networks:
+      - ppt_network
+
   outline_api:
     container_name: ppt_outline_api_app
     build:
       context: ./backend/simpleOutline
       dockerfile: Dockerfile
     ports:
-      - "10060:10060"
-    network_mode: bridge
+      - "10060:10001"
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    env_file:
+      - ./.env
+    networks:
+      - ppt_network
+
   content_api:
     container_name: ppt_content_api_app
     build:
       context: ./backend/slide_agent
       dockerfile: Dockerfile
     ports:
-      - "10061:10061"
-    network_mode: bridge
+      - "10061:10011"
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    env_file:
+      - ./.env
+    networks:
+      - ppt_network
+
   frontend:
     container_name: ppt_frontend
     build:
@@ -52,3 +70,20 @@ services:
       - "8008:80"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      - ppt_network
+
+  ollama:
+    image: ollama/ollama
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ./ollama_data:/root/.ollama
+    restart: unless-stopped
+    networks:
+      - ppt_network
+
+networks:
+  ppt_network:
+    driver: bridge
