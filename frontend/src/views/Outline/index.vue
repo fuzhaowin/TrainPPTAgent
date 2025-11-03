@@ -295,6 +295,8 @@ const handleFileChange = (event: Event) => {
 
 const uploadWordAndCreateOutline = async (file: File) => {
   mainStore.setOutlineFromFile(true)
+  // 确保用于后端检索的 userId 为整数：上传前重置为数字会话ID
+  mainStore.resetSessionId()
   loading.value = true
   outlineCreating.value = true
   showProcessingModal.value = true

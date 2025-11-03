@@ -3,6 +3,32 @@ import message from '@/utils/message'
 
 const instance = axios.create({ timeout: 1000 * 300 })
 
+function unpackDetail(input: unknown): string {
+  try {
+    if (typeof input === 'string') {
+      const maybeObj = JSON.parse(input)
+      return unpackDetail(maybeObj)
+    }
+    if (input && typeof input === 'object') {
+      const obj: any = input
+      const d = obj.detail ?? obj.message ?? obj.error
+      if (typeof d === 'string') {
+        try {
+          const inner = JSON.parse(d)
+          return unpackDetail(inner)
+        } catch {
+          return d
+        }
+      }
+      if (d && typeof d === 'object') return unpackDetail(d)
+      return JSON.stringify(obj)
+    }
+    return String(input ?? '')
+  } catch {
+    return typeof input === 'string' ? input : '请求失败'
+  }
+}
+
 instance.interceptors.response.use(
   response => {
     if (response.status >= 200 && response.status < 400) {
@@ -14,19 +40,15 @@ instance.interceptors.response.use(
   },
   error => {
     if (error && error.response) {
-      if (error.response.status >= 400 && error.response.status < 500) {
-        return Promise.reject(error.message)
-      }
-      else if (error.response.status >= 500) {
-        return Promise.reject(error.message)
-      }
-      
-      message.error('服务器遇到未知错误！')
-      return Promise.reject(error.message)
+      const status = error.response.status
+      const raw = error.response.data
+      const msg = unpackDetail(raw) || error.message || '请求失败'
+      message.error(msg)
+      return Promise.reject({ status, message: msg })
     }
 
     message.error('连接到服务器失败 或 服务器响应超时！')
-    return Promise.reject(error)
+    return Promise.reject({ message: '网络连接失败或超时' })
   }
 )
 

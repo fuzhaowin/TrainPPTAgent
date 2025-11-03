@@ -81,7 +81,7 @@ export const useMainStore = defineStore('main', {
     showMarkupPanel: false, // 打开类型标注面板
     showAIPPTDialog: false, // 打开AIPPT创建窗口
     isGenerating: false,
-    sessionId: nanoid(),
+    sessionId: String(Date.now()),
     isOutlineFromFile: false, //是否上传了文件，上传了文件，就根据文件生成ppt的大纲
     generateFromUploadedFile: false, // 是否是依据上传的文件生成PPT
     generateFromWebSearch: false, // 是否是依据网络搜索生成PPT
@@ -237,6 +237,10 @@ export const useMainStore = defineStore('main', {
     // 是否是依据网络搜索生成PPT
     setGenerateFromWebSearch(isFromWebSearch: boolean) {
       this.generateFromWebSearch = isFromWebSearch
+    },
+    // 重置会话ID为纯数字字符串，避免后端 userId 校验失败
+    resetSessionId() {
+      this.sessionId = String(Date.now())
     },
   },
 })

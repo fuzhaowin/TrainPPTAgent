@@ -32,23 +32,23 @@ if ($LASTEXITCODE -eq 0) {
 }
 
 # 拉取 LLM 模型 (qwen2.5:14b)
-Write-Host "拉取 LLM 模型 qwen2.5:14b..." -ForegroundColor Yellow
-Write-Host "注意：此模型约 8.7GB，首次下载需要较长时间" -ForegroundColor Cyan
-docker exec -it ollama ollama pull qwen2.5:14b
+# Write-Host "拉取 LLM 模型 qwen2.5:14b..." -ForegroundColor Yellow
+# Write-Host "注意：此模型约 8.7GB，首次下载需要较长时间" -ForegroundColor Cyan
+# docker exec -it ollama ollama pull qwen2.5:14b
+
+# if ($LASTEXITCODE -eq 0) {
+#     Write-Host "✓ LLM 模型 qwen2.5:14b 拉取成功" -ForegroundColor Green
+# } else {
+#     Write-Host "✗ LLM 模型拉取失败" -ForegroundColor Red
+#     Write-Host "可以尝试使用更小的模型，如 qwen2.5:7b 或 qwen2.5:3b" -ForegroundColor Yellow
+# }
+
+# 拉取嵌入模型 (bge-m3)
+Write-Host "拉取嵌入模型 bge-m3..." -ForegroundColor Yellow
+docker exec -it ollama ollama pull bge-m3
 
 if ($LASTEXITCODE -eq 0) {
-    Write-Host "✓ LLM 模型 qwen2.5:14b 拉取成功" -ForegroundColor Green
-} else {
-    Write-Host "✗ LLM 模型拉取失败" -ForegroundColor Red
-    Write-Host "可以尝试使用更小的模型，如 qwen2.5:7b 或 qwen2.5:3b" -ForegroundColor Yellow
-}
-
-# 拉取嵌入模型 (mxbai-embed-large)
-Write-Host "拉取嵌入模型 mxbai-embed-large..." -ForegroundColor Yellow
-docker exec -it ollama ollama pull mxbai-embed-large
-
-if ($LASTEXITCODE -eq 0) {
-    Write-Host "✓ 嵌入模型 mxbai-embed-large 拉取成功" -ForegroundColor Green
+    Write-Host "✓ 嵌入模型 bge-m3 拉取成功" -ForegroundColor Green
 } else {
     Write-Host "✗ 嵌入模型拉取失败" -ForegroundColor Red
 }
@@ -58,13 +58,13 @@ Write-Host "验证已安装的模型..." -ForegroundColor Yellow
 docker exec ollama ollama list
 
 # 测试 LLM 模型（需要模型已安装）
-Write-Host "测试 LLM 模型..." -ForegroundColor Yellow
-docker exec ollama ollama run qwen2.5:14b "你好" | Out-Null
-if ($LASTEXITCODE -eq 0) {
-    Write-Host "✓ LLM 模型测试成功" -ForegroundColor Green
-} else {
-    Write-Host "✗ LLM 模型测试失败（请确认模型已下载）" -ForegroundColor Red
-}
+# Write-Host "测试 LLM 模型..." -ForegroundColor Yellow
+# docker exec ollama ollama run qwen2.5:14b "你好" | Out-Null
+# if ($LASTEXITCODE -eq 0) {
+#     Write-Host "✓ LLM 模型测试成功" -ForegroundColor Green
+# } else {
+#     Write-Host "✗ LLM 模型测试失败（请确认模型已下载）" -ForegroundColor Red
+# }
 
 # 测试嵌入模型（需要模型已安装）
 Write-Host "测试嵌入模型..." -ForegroundColor Yellow

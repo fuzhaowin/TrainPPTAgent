@@ -43,50 +43,66 @@ def cal_md5(content):
 
 def cache_decorator(func):
     """
-    cache从文件中读取, 当func中存在usecache时，并且为False时，不使用缓存
-    Args:
-        func ():
-    Returns:
+    文件级缓存装饰器：
+    - 支持通过 usecache=False 禁用缓存
+    - 过滤无效结果（如 {'data': []} 或 (False, msg)）避免缓存污染
     """
-    cache_path = "cache" #cache目录
+    cache_path = "cache"  # 缓存目录
     if not os.path.exists(cache_path):
         os.mkdir(cache_path)
 
+    def _is_invalid_result(res: Any) -> bool:
+        # (False, msg) 视为错误结果，不缓存
+        if isinstance(res, tuple) and len(res) >= 1 and res[0] is False:
+            return True
+        # {'data': []} 视为无效嵌入结果，不缓存
+        if isinstance(res, dict) and 'data' in res and isinstance(res['data'], list) and len(res['data']) == 0:
+            return True
+        return False
+
     @wraps(func)
     def wrapper(*args, **kwargs):
-        # 将args和kwargs转换为哈希键， 当装饰类中的函数的时候，args的第一个参数是实例化的类，这会通常导致改变，我们不想检测它是否改变，那么就忽略它
+        # 将args和kwargs转换为哈希键；类方法时忽略第一个 self 参数
         usecache = kwargs.get("usecache", True)
         if "usecache" in kwargs:
             del kwargs["usecache"]
-        if len(args)> 0:
-            if isinstance(args[0],(int, float, str, list, tuple, dict)):
+        if len(args) > 0:
+            if isinstance(args[0], (int, float, str, list, tuple, dict)):
                 key = str(args) + str(kwargs)
             else:
-                # 第1个参数以后的内容
                 key = str(args[1:]) + str(kwargs)
         else:
             key = str(args) + str(kwargs)
-        # 变成md5字符串
+
         key_file = os.path.join(cache_path, cal_md5(key) + "_cache.pkl")
-        # 如果结果已缓存，则返回缓存的结果
+
+        # 命中缓存：若读取到无效结果则忽略并走真实计算
         if os.path.exists(key_file) and usecache:
-            # 去掉kwargs中的usecache
             print(f"函数{func.__name__}被调用，缓存被命中，使用已缓存结果，对于参数{key}")
             try:
                 with open(key_file, 'rb') as f:
-                    result = pickle.load(f)
-                    return result
+                    cached = pickle.load(f)
+                if not _is_invalid_result(cached):
+                    return cached
+                else:
+                    print(f"函数{func.__name__}被调用，命中无效缓存（忽略并重算），对于参数{key}")
             except Exception as e:
                 print(f"函数{func.__name__}被调用，缓存被命中，读取文件:{key_file}失败，错误信息:{e}")
+
+        # 执行原函数
         result = func(*args, **kwargs)
-        # 将结果缓存到文件中
-        # 如果返回的数据是一个元祖，并且第1个参数是False,说明这个函数报错了，那么就不缓存了，这是我们自己的一个设定
-        if isinstance(result, tuple) and result[0] == False:
-            print(f"函数{func.__name__}被调用，返回结果为False，对于参数{key}, 不缓存")
+
+        # 写入缓存：无效结果不缓存，避免重复命中导致错误
+        if _is_invalid_result(result):
+            print(f"函数{func.__name__}被调用，结果无效（不缓存），对于参数{key}")
         else:
-            with open(key_file, 'wb') as f:
-                pickle.dump(result, f)
-            print(f"函数{func.__name__}被调用，缓存未命中，结果被缓存，对于参数{key}, 写入文件:{key_file}")
+            try:
+                with open(key_file, 'wb') as f:
+                    pickle.dump(result, f)
+                print(f"函数{func.__name__}被调用，缓存未命中，结果被缓存，对于参数{key}, 写入文件:{key_file}")
+            except Exception as e:
+                print(f"函数{func.__name__}被调用，写入缓存失败:{e}，对于参数{key}")
+
         return result
 
     return wrapper
@@ -157,9 +173,12 @@ class ChromaDB(object):
         Returns:
         """
         col = self.client.get_or_create_collection(collection, metadata={"hnsw:space": "cosine"})
-        vectors_result = self.embedder.do_embedding(documents)
+        # 禁用缓存，避免命中无效缓存
+        vectors_result = self.embedder.do_embedding(texts=documents, usecache=False)
         vectors = vectors_result["data"]
-        embeddings = [one["embedding"] for one in vectors]
+        embeddings = [one.get("embedding") for one in vectors if isinstance(one, dict)]
+        if not embeddings or any(e is None or (isinstance(e, list) and len(e) == 0) for e in embeddings):
+            raise ValueError("嵌入结果为空或包含无效向量")
         col.add(
             embeddings=embeddings,
             documents=documents,
@@ -178,9 +197,11 @@ class ChromaDB(object):
         Returns:
         """
         col = self.client.get_or_create_collection(collection)
-        vectors_result = self.embedder.do_embedding(texts=query_documents)
+        vectors_result = self.embedder.do_embedding(texts=query_documents, usecache=False)
         vectors = vectors_result["data"]
-        embeddings = [one["embedding"] for one in vectors]
+        embeddings = [one.get("embedding") for one in vectors if isinstance(one, dict)]
+        if not embeddings or any(e is None or (isinstance(e, list) and len(e) == 0) for e in embeddings):
+            raise ValueError("嵌入查询结果为空或包含无效向量")
         if keyword:
             query_result = col.query(
                 query_embeddings=embeddings,
@@ -235,9 +256,12 @@ class ChromaDB(object):
         # 然后插入新的向量
         try:
             collection_name = f"user_{user_id}"
-            vectors_result = self.embedder.do_embedding(texts=documents)
+            # 禁用函数级缓存，避免命中无效缓存导致空嵌入
+            vectors_result = self.embedder.do_embedding(texts=documents, usecache=False)
             vectors = vectors_result["data"]
-            embeddings = [one["embedding"] for one in vectors]
+            embeddings = [one.get("embedding") for one in vectors if isinstance(one, dict)]
+            if not embeddings or any(e is None or (isinstance(e, list) and len(e) == 0) for e in embeddings):
+                raise ValueError("嵌入结果为空或包含无效向量")
             meta = [{"file_name": file_name,"file_id": file_id, "user_id": user_id, "folder_id": folder_id, "url": url, "file_type": file_type} for _ in documents]
             ids = [f"{file_id}_{i}" for i in range(len(documents))]
             col = self.client.get_or_create_collection(collection_name, metadata={"hnsw:space": "cosine"})
@@ -452,9 +476,11 @@ class EmbeddingModel(object):
         """
         url = f"{self.ollama_base}/api/embeddings"
         data = []
+        # 允许通过环境变量配置超时时间，默认 300 秒
+        timeout_sec = int(os.getenv("EMBEDDING_TIMEOUT", "300"))
         for t in texts:
             payload = {"model": self.model, "prompt": t}
-            r = self.session.post(url, json=payload, timeout=120)
+            r = self.session.post(url, json=payload, timeout=timeout_sec)
             if r.status_code != 200:
                 raise RuntimeError(f"Ollama embeddings失败: {r.status_code} {r.text}")
             j = r.json()

@@ -3,6 +3,53 @@ import axios from './config'
 // export const SERVER_URL = 'http://localhost:5000'
 export const SERVER_URL = '/api'
 
+function unpackErrorText(raw: string): string {
+  try {
+    const obj = JSON.parse(raw)
+    const d = (obj as any).detail ?? (obj as any).message ?? (obj as any).error
+    if (typeof d === 'string') {
+      try {
+        const inner = JSON.parse(d)
+        return (inner.detail ?? inner.message ?? inner.error ?? d) as string
+      } catch {
+        return d
+      }
+    }
+    if (d && typeof d === 'object') {
+      return (d.detail ?? d.message ?? d.error ?? JSON.stringify(d)) as string
+    }
+    return JSON.stringify(obj)
+  } catch {
+    // 如果是 Nginx/网关生成的 HTML 错误页，转换为友好文案
+    const lower = raw.toLowerCase()
+    if (lower.includes('<html') || lower.includes('gateway time-out') || lower.includes('nginx')) {
+      if (lower.includes('504')) {
+        return '504 网关超时：后端耗时较长或代理超时，请稍后重试或检查后端服务状态。'
+      }
+      if (lower.includes('502')) {
+        return '502 网关错误：后端服务不可达或异常，请检查后端服务。'
+      }
+      return '网关错误：请稍后重试或检查后端服务。'
+    }
+    return raw
+  }
+}
+
+async function fetchStream(url: string, options: RequestInit): Promise<Response> {
+  const res = await fetch(url, options)
+  if (res.ok) return res
+  const raw = await res.text()
+  const msg = unpackErrorText(raw)
+  const encoder = new TextEncoder()
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(encoder.encode(msg))
+      controller.close()
+    }
+  })
+  return new Response(stream, { status: 200, headers: { 'Content-Type': 'text/plain; charset=utf-8' } })
+}
+
 interface AIPPTOutlinePayload {
   content: string
   language: string
@@ -48,7 +95,7 @@ export default {
     language,
     model,
   }: AIPPTOutlinePayload): Promise<any> {
-    return fetch(`${SERVER_URL}/tools/aippt_outline`, {
+    return fetchStream(`${SERVER_URL}/tools/aippt_outline`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -71,7 +118,7 @@ export default {
     generateFromWebSearch,
     sessionId,
   }: AIPPTPayload): Promise<any> {
-    return fetch(`${SERVER_URL}/tools/aippt`, {
+    return fetchStream(`${SERVER_URL}/tools/aippt`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -94,7 +141,7 @@ export default {
     id,
     language,
   }: AIByIDPayload): Promise<any> {
-    return fetch(`${SERVER_URL}/tools/aippt_by_id`, {
+    return fetchStream(`${SERVER_URL}/tools/aippt_by_id`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -110,7 +157,7 @@ export default {
     content,
     command,
   }: AIWritingPayload): Promise<any> {
-    return fetch(`${SERVER_URL}/tools/ai_writing`, {
+    return fetchStream(`${SERVER_URL}/tools/ai_writing`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -123,12 +170,13 @@ export default {
     })
   },
 
-  AIPPT_Outline_From_File(file: File, user_id: string, language: string): Promise<any> {
+  AIPPT_Outline_From_File(file: File, user_id: string | number, language: string): Promise<any> {
     const formData = new FormData()
     formData.append('file', file)
-    formData.append('user_id', user_id)
+    const num = typeof user_id === 'number' ? user_id : (/^\d+$/.test(String(user_id)) ? parseInt(String(user_id), 10) : 0)
+    formData.append('user_id', String(Math.max(0, num)))
     formData.append('language', language)
-    return fetch(`${SERVER_URL}/tools/aippt_outline_from_file`, {
+    return fetchStream(`${SERVER_URL}/tools/aippt_outline_from_file`, {
       method: 'POST',
       body: formData,
     })

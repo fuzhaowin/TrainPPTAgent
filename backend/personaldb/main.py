@@ -16,6 +16,7 @@ from typing import List, Optional
 import embedding_utils
 from embedding_utils import cache_decorator
 from urllib.parse import urlparse
+from utils.validators import validate_url, sanitize_filename
 from core.magic_pdf_converter import MagicPDFConverter
 from core.markitdown_converter import MarkItDownConverter
 from core.chunkers.semantic_chunker import SemanticChunker
@@ -32,10 +33,46 @@ TEMP_DIR = "temp_download"
 if not os.path.exists(TEMP_DIR):
     os.makedirs(TEMP_DIR)
 
+# ======== 通用校验与错误映射工具函数 ========
+def _to_int_or_error(name: str, value, min_value: int = 0) -> int:
+    """
+    将传入值转换为int并进行下限校验；失败则抛422。
+    """
+    try:
+        iv = int(value)
+    except Exception:
+        raise HTTPException(status_code=422, detail=f"参数 {name} 必须为整数")
+    if iv < min_value:
+        raise HTTPException(status_code=422, detail=f"参数 {name} 必须≥{min_value}")
+    return iv
+
+def _is_embedding_backend_error(msg: str) -> bool:
+    """
+    识别典型嵌入后端不可用错误信息，统一映射为 503。
+    """
+    patterns = [
+        "Expected Embeddings to be non-empty",  # chromadb空向量
+        "Ollama embeddings失败",               # ollama返回非200
+        "Failed to establish a connection",    # 连接失败
+        "Connection refused",                  # 服务拒绝连接
+        "Model not found",                     # 模型不存在
+        "no such model",                       # ollama 未拉取模型
+    ]
+    m = msg.lower()
+    return any(p.lower() in m for p in patterns)
+
+def _raise_embedding_503(extra: str = ""):
+    hint = "嵌入模型不可用或未安装，请检查 EMBEDDING_PROVIDER/EMBEDDING_MODEL 及后端服务。"
+    if extra:
+        hint = f"{hint} 详情：{extra}"
+    raise HTTPException(status_code=503, detail=hint)
+
 # RabbitMQ消息处理类
 
 class SearchQuery(BaseModel):
-    userId: int | str
+    # 统一语义：允许传入 int 或 str，但默认值为 0
+    # 实际在端点中通过 _to_int_or_error 强制为非负整数
+    userId: Optional[int | str] = 0
     query: str
     keyword: Optional[str] = ""
     topk: Optional[int] = 3
@@ -47,9 +84,11 @@ def search_personal_knowledge_base(query: SearchQuery):
     """
     try:
         logger.info(f"收到搜索请求: {query}")
+        # 统一 userId 语义：转换为非负整数，缺省为 0（先校验后初始化后端，避免后端错误遮蔽入参错误）
+        user_id_int = _to_int_or_error("userId", query.userId if query.userId is not None else 0, min_value=0)
         embedder = embedding_utils.EmbeddingModel()
         chroma = embedding_utils.ChromaDB(embedder)
-        collection_name = f"user_{query.userId}"
+        collection_name = f"user_{user_id_int}"
 
         result = chroma.query2collection(
             collection=collection_name,
@@ -59,6 +98,9 @@ def search_personal_knowledge_base(query: SearchQuery):
         )
         logger.info(f"搜索成功: {result}")
         return result
+    except HTTPException as he:
+        # 直接透传校验/参数类错误，例如 422
+        raise he
     except Exception as e:
         logger.error(f"搜索失败: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"搜索失败: {str(e)}")
@@ -111,6 +153,12 @@ def process_and_vectorize_local_file(file_name: str, temp_file_path: str, id: in
     if not documents:
         raise ValueError("分块后内容为空")
     logger.info(f"内容分块成功，共 {len(documents)} 块。")
+    # 调试输出：首块预览，便于定位嵌入失败原因
+    try:
+        preview = documents[0] if documents else ""
+        print(f"[DEBUG] chunk_count={len(documents)} first_chunk='{preview[:120].replace('\n',' ')}'...")
+    except Exception as _:
+        pass
 
     # 步骤3: 基础环境检查
     provider = os.getenv("EMBEDDING_PROVIDER")
@@ -124,15 +172,26 @@ def process_and_vectorize_local_file(file_name: str, temp_file_path: str, id: in
     embedder = embedding_utils.EmbeddingModel()
     chroma = embedding_utils.ChromaDB(embedder)
     logger.info(f"开始插入文件 {id} 的向量")
-    embedding_result = chroma.insert_file_vectors(
-        file_name=file_name,
-        user_id=user_id,
-        file_id=id,
-        file_type=file_type or "unknown",
-        url=url or "",
-        folder_id=folder_id or 0,
-        documents=documents
-    )
+    try:
+        embedding_result = chroma.insert_file_vectors(
+            file_name=file_name,
+            user_id=user_id,
+            file_id=id,
+            file_type=file_type or "unknown",
+            url=url or "",
+            folder_id=folder_id or 0,
+            documents=documents
+        )
+        # 兜底：即使插入成功也校验返回结构
+        data = embedding_result.get("data", []) if isinstance(embedding_result, dict) else []
+        if not data or any((not one.get("embedding")) for one in data if isinstance(one, dict)):
+            _raise_embedding_503("嵌入结果为空或无效")
+    except Exception as e:
+        msg = str(e)
+        logger.error(f"插入向量阶段失败: {msg}", exc_info=True)
+        if _is_embedding_backend_error(msg):
+            _raise_embedding_503(msg)
+        raise
     logger.info("向量插入成功")
 
     result = {
@@ -158,9 +217,9 @@ def process_file_sync(file_name:str, id: int, user_id: int|str, file_type: str, 
         raise ValueError("url不能为空")
 
     # 验证URL格式
-    if not url.startswith(("http://", "https://")):
+    if not validate_url(url):
         logger.error(f"无效的URL格式: {url}")
-        raise ValueError("url必须以http://或https://开头")
+        raise ValueError("url格式无效，必须为以 http(s) 开头的有效URL")
 
     parsed_url = urlparse(url)
     logger.info(f"解析后的URL: {parsed_url.geturl()}")
@@ -230,15 +289,17 @@ async def upload_and_vectorize_endpoint(request: Request):
                 upload_file = possible_file
 
         # 参数解析与校验
-        userId = data.get("userId")
-        fileId = data.get("fileId")
+        userId_raw = data.get("userId")
+        fileId_raw = data.get("fileId")
 
-        if userId is None:
+        if userId_raw is None:
             raise HTTPException(status_code=422, detail="缺少或非法参数: userId")
-        if fileId is None:
+        if fileId_raw is None:
             raise HTTPException(status_code=422, detail="缺少或非法参数: fileId")
-
-        folderId = int(data.get("folderId", 0))
+        # 强制数值校验
+        userId = _to_int_or_error("userId", userId_raw, min_value=0)
+        fileId = _to_int_or_error("fileId", fileId_raw, min_value=0)
+        folderId = _to_int_or_error("folderId", data.get("folderId", 0), min_value=0)
         fileType = data.get("fileType")
         url = data.get("url")
 
@@ -255,8 +316,8 @@ async def upload_and_vectorize_endpoint(request: Request):
             # 推断 fileType
             if not fileType and upload_file and upload_file.filename:
                 fileType = upload_file.filename.split(".")[-1] if "." in upload_file.filename else "unknown"
-
-            temp_file_name = f"{uuid.uuid4()}_{upload_file.filename or 'uploaded_file'}"
+            safe_name = sanitize_filename(upload_file.filename or "uploaded_file")
+            temp_file_name = f"{uuid.uuid4()}_{safe_name}"
             temp_file_path = os.path.join(TEMP_DIR, temp_file_name)
             # 保存上传内容
             content_bytes = await upload_file.read()
@@ -265,7 +326,7 @@ async def upload_and_vectorize_endpoint(request: Request):
             logger.info(f"文件上传成功: {temp_file_path}")
 
             return process_and_vectorize_local_file(
-                file_name=upload_file.filename or "uploaded_file",
+                file_name=safe_name,
                 temp_file_path=temp_file_path,
                 id=fileId,
                 user_id=userId,
@@ -276,7 +337,11 @@ async def upload_and_vectorize_endpoint(request: Request):
 
         # 分支：URL 下载处理
         else:
+            # URL 校验
+            if not validate_url(url or ""):
+                raise HTTPException(status_code=422, detail="url格式无效，请提供以 http(s) 开头且域名有效的地址")
             file_name = os.path.basename(urlparse(url).path) or f"downloaded_file_{userId}"
+            file_name = sanitize_filename(file_name)
             return process_file_sync(
                 file_name=file_name,
                 id=fileId,
@@ -289,8 +354,11 @@ async def upload_and_vectorize_endpoint(request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"上传和向量化失败: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        msg = str(e)
+        logger.error(f"上传和向量化失败: {msg}", exc_info=True)
+        if _is_embedding_backend_error(msg):
+            _raise_embedding_503(msg)
+        raise HTTPException(status_code=500, detail=msg)
     finally:
         pass
         # if temp_file_path and os.path.exists(temp_file_path):
@@ -340,7 +408,8 @@ def process_text_content(
     """
     logger.info("开始处理纯文本向量化")
     if not text or not text.strip():
-        raise ValueError("content 不能为空")
+        # 入参问题应返回 422
+        raise HTTPException(status_code=422, detail="content 不能为空")
 
     # 与现有流程保持一致的环境变量校验
     provider = os.getenv("EMBEDDING_PROVIDER")
@@ -351,22 +420,33 @@ def process_text_content(
 
     documents = _chunk_text(text)
     if not documents:
-        raise ValueError("content 无有效文本")
+        # 入参问题应返回 422
+        raise HTTPException(status_code=422, detail="content 无有效文本")
 
     logger.info("初始化 embedding 模型与 Chroma")
     embedder = embedding_utils.EmbeddingModel()
     chroma = embedding_utils.ChromaDB(embedder)
 
     logger.info(f"插入文本向量：fileId={id}, userId={user_id}")
-    embedding_result = chroma.insert_file_vectors(
-        file_name=file_name,
-        user_id=user_id or 0,
-        file_id=id,
-        file_type=file_type or "unknown",
-        url=url or "",
-        folder_id=folder_id or 0,
-        documents=documents
-    )
+    try:
+        embedding_result = chroma.insert_file_vectors(
+            file_name=file_name,
+            user_id=user_id or 0,
+            file_id=id,
+            file_type=file_type or "unknown",
+            url=url or "",
+            folder_id=folder_id or 0,
+            documents=documents
+        )
+        data = embedding_result.get("data", []) if isinstance(embedding_result, dict) else []
+        if not data or any((not one.get("embedding")) for one in data if isinstance(one, dict)):
+            _raise_embedding_503("嵌入结果为空或无效")
+    except Exception as e:
+        msg = str(e)
+        logger.error(f"插入文本向量失败: {msg}", exc_info=True)
+        if _is_embedding_backend_error(msg):
+            _raise_embedding_503(msg)
+        raise
 
     result = {
         "id": id,
@@ -393,8 +473,18 @@ def vectorize_text_endpoint(body: TextVectorizeBody):
         logger.info(
             f"收到文本向量化请求: fileId={body.fileId}, fileName={body.fileName}, userId={body.userId}"
         )
+        # 基础参数校验
+        if not body.fileName or not str(body.fileName).strip():
+            raise HTTPException(status_code=422, detail="fileName 不能为空")
+        _ = _to_int_or_error("fileId", body.fileId, min_value=0)
+        _ = _to_int_or_error("userId", body.userId or 0, min_value=0)
+        safe_name = sanitize_filename(body.fileName)
+        # URL 校验（可选）
+        if body.url:
+            if not validate_url(body.url):
+                raise HTTPException(status_code=422, detail="url格式无效，请提供以 http(s) 开头且域名有效的地址")
         return process_text_content(
-            file_name=body.fileName,
+            file_name=safe_name,
             text=body.content,
             id=body.fileId,
             user_id=body.userId or 0,
@@ -402,9 +492,15 @@ def vectorize_text_endpoint(body: TextVectorizeBody):
             folder_id=body.folderId or 0,
             url=body.url or ""
         )
+    except HTTPException as he:
+        # 直接透传 4xx/5xx 的明确错误
+        raise he
     except Exception as e:
-        logger.error(f"文本向量化失败: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"文本向量化失败: {str(e)}")
+        msg = str(e)
+        logger.error(f"文本向量化失败: {msg}", exc_info=True)
+        if _is_embedding_backend_error(msg):
+            _raise_embedding_503(msg)
+        raise HTTPException(status_code=500, detail=f"文本向量化失败: {msg}")
 
 @app.get("/files/{user_id}")
 def list_user_files(user_id: int):
