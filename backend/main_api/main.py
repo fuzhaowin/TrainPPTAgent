@@ -17,6 +17,19 @@ from fastapi import UploadFile, File, HTTPException, Form
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 from outline_client import A2AOutlineClientWrapper
 from content_client import A2AContentClientWrapper
+from typing import Any, Dict, Optional, List
+from tempfile import NamedTemporaryFile
+from template.qwen_vl_2dgrounding import (
+    build_prompt_for_template,
+    infer_with_openai_compat,
+    merge_template_types,
+)
+try:
+    # 部分版本脚本提供 safe_json_loads / parse_json_fenced
+    from template.qwen_vl_2dgrounding import safe_json_loads, parse_json_fenced  # type: ignore
+except Exception:
+    safe_json_loads = None  # type: ignore
+    parse_json_fenced = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 dotenv.load_dotenv()
@@ -245,6 +258,335 @@ async def get_templates():
     ]
 
     return {"data": templates}
+
+# =============================
+# 模板初标注：调用 Qwen-VL 对页面进行类型与元素角色识别
+# =============================
+
+class AnnotateRequest(BaseModel):
+    image_b64: str
+    slide_json: Dict[str, Any]
+    model: Optional[str] = None
+    iou: Optional[float] = 0.25
+
+
+@app.post("/template/annotate")
+async def template_annotate(req: AnnotateRequest):
+    api_key = os.environ.get("ALI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="ALI_API_KEY 未配置，请在后端 .env 中设置")
+
+    # 写入临时图片文件（支持 data:image/*;base64, 前缀或纯 base64）
+    img_b64 = req.image_b64
+    if "," in img_b64 and img_b64.startswith("data:"):
+        img_b64 = img_b64.split(",", 1)[1]
+    try:
+        img_bytes = base64.b64decode(img_b64)
+    except Exception:
+        raise HTTPException(status_code=400, detail="image_b64 不是合法的 base64 图片数据")
+
+    with NamedTemporaryFile(delete=False, suffix=".png") as tf:
+        tf.write(img_bytes)
+        tmp_img_path = tf.name
+
+    try:
+        prompt = build_prompt_for_template()
+        model_name = req.model or "qwen3-vl-235b-a22b-instruct"
+        model_text = infer_with_openai_compat(
+            api_key=api_key,
+            image_path_or_url=tmp_img_path,
+            prompt=prompt,
+            model=model_name,
+        )
+
+        # 解析模型返回
+        model_obj: Dict[str, Any]
+        if safe_json_loads:
+            parsed = safe_json_loads(model_text)  # type: ignore
+            if not isinstance(parsed, dict):
+                # 尝试去掉围栏再解析
+                body = parse_json_fenced(model_text) if parse_json_fenced else model_text
+                parsed = json.loads(body)
+            model_obj = parsed  # type: ignore
+        else:
+            body = model_text
+            # 尝试围栏剥离
+            if model_text.strip().startswith("```"):
+                if parse_json_fenced:
+                    body = parse_json_fenced(model_text)  # type: ignore
+            model_obj = json.loads(body)
+
+        merged_slide = merge_template_types(req.slide_json, model_obj, iou_thresh=req.iou or 0.25)
+
+        return {
+            "model": model_obj,
+            "merged_slide": merged_slide,
+        }
+    except Exception as e:
+        logger.exception("模板初标注失败")
+        raise HTTPException(status_code=500, detail=f"模板初标注失败: {e}")
+    finally:
+        try:
+            os.remove(tmp_img_path)
+        except Exception:
+            pass
+
+# =============================
+# 模板重写：将不规范的 JSON 结构标准化为前端 Slide 类型
+# =============================
+
+class RewriteRequest(BaseModel):
+    slide_json: Dict[str, Any] | None = None
+    doc_json: Dict[str, Any] | None = None
+    image_b64: Optional[str] = None
+    model: Optional[str] = None
+    iou: Optional[float] = 0.25
+    normalize_theme: bool = True
+    strict: bool = False
+
+
+def _map_page_type_to_slide_type(page_type: str) -> str:
+    mapper = {
+        "cover": "cover",
+        "section": "transition",
+        "thankyou": "end",
+        "title-content": "content",
+        "two-column": "content",
+        "image-caption": "content",
+        "list": "content",
+        "unknown": "content",
+    }
+    return mapper.get(page_type, "content")
+
+
+def _default_theme() -> Dict[str, Any]:
+    return {
+        "backgroundColor": "#ffffff",
+        "themeColors": ["#007AFF", "#34C759", "#FF9500", "#5856D6"],
+        "fontColor": "#333333",
+        "fontName": "Arial",
+        "outline": {"style": "solid", "width": 1, "color": "#000000"},
+        "shadow": {"h": 0, "v": 0, "blur": 0, "color": "rgba(0,0,0,0.15)"},
+    }
+
+
+def _canonicalize_element(e: Dict[str, Any], W: int, H: int, strict: bool) -> Dict[str, Any] | None:
+    etype = e.get("type")
+    # 预取几何信息
+    left = e.get("left")
+    top = e.get("top")
+    width = e.get("width")
+    height = e.get("height")
+    rotate = e.get("rotate", 0)
+
+    # 如果没有几何信息但存在 bbox_2d，转为绝对坐标
+    bbox = e.get("bbox_2d")
+    if (left is None or top is None or width is None or height is None) and isinstance(bbox, list) and len(bbox) == 4 and W and H:
+        x1, y1, x2, y2 = bbox
+        # bbox 使用 0~1000 相对坐标
+        left = int(round(x1 / 1000.0 * W))
+        top = int(round(y1 / 1000.0 * H))
+        width = int(round((x2 - x1) / 1000.0 * W))
+        height = int(round((y2 - y1) / 1000.0 * H))
+
+    # 必要几何缺失时，严格模式下丢弃；非严格则跳过
+    if left is None or top is None or width is None or height is None:
+        return None if strict else None
+
+    base = {
+        "id": str(e.get("id") or uuid.uuid4()),
+        "left": left,
+        "top": top,
+        "width": width,
+        "height": height,
+        "rotate": rotate,
+    }
+
+    # 处理文本
+    if etype == "text":
+        content = e.get("content")
+        if content is None:
+            content = ""
+        text_el = {
+            **base,
+            "type": "text",
+            "content": content,
+            "defaultFontName": e.get("defaultFontName", "Arial"),
+            "defaultColor": e.get("defaultColor", "#333333"),
+        }
+        # 保留 textType 映射
+        if e.get("textType"):
+            text_el["textType"] = e["textType"]
+        # 可选样式
+        for k in ["outline", "fill", "lineHeight", "wordSpace", "opacity", "shadow", "paragraphSpace", "vertical"]:
+            if k in e:
+                text_el[k] = e[k]
+        return text_el
+
+    # 图片
+    if etype == "image":
+        src = e.get("src")
+        if not src:
+            return None if strict else None
+        img_el = {
+            **base,
+            "type": "image",
+            "fixedRatio": bool(e.get("fixedRatio", True)),
+            "src": src,
+        }
+        for k in ["outline", "filters", "clip", "flipH", "flipV", "shadow", "radius", "colorMask", "imageType"]:
+            if k in e:
+                img_el[k] = e[k]
+        return img_el
+
+    # 形状或其他：转为 shape，标记 special 以保证可视化不丢失
+    shape_el = {
+        **base,
+        "type": "shape",
+        "viewBox": [1000, 1000],
+        "path": e.get("path", "M0 0 L1000 0 L1000 1000 L0 1000 Z"),
+        "fixedRatio": bool(e.get("fixedRatio", False)),
+        "fill": e.get("fill", "#EFEFEF"),
+        "special": True,
+    }
+    # 尝试继承文本（如果存在）
+    if e.get("text"):
+        shape_el["text"] = e["text"]
+    for k in ["gradient", "pattern", "outline", "opacity", "flipH", "flipV", "shadow", "pathFormula", "keypoints"]:
+        if k in e:
+            shape_el[k] = e[k]
+    return shape_el
+
+
+def _canonicalize_doc(doc: Dict[str, Any], strict: bool = False) -> Dict[str, Any]:
+    width = int(doc.get("width") or 1280)
+    height = int(doc.get("height") or 720)
+    theme = doc.get("theme") if isinstance(doc.get("theme"), dict) else _default_theme()
+
+    slides_in = doc.get("slides")
+    if not isinstance(slides_in, list):
+        # 兼容单页结构
+        single = {k: v for k, v in doc.items() if k != "slides"}
+        slides_in = [single]
+
+    slides_out: List[Dict[str, Any]] = []
+    for s in slides_in:
+        elements = s.get("elements") if isinstance(s.get("elements"), list) else []
+        W = int(s.get("width") or width)
+        H = int(s.get("height") or height)
+
+        clean_elems: List[Dict[str, Any]] = []
+        for e in elements:
+            ce = _canonicalize_element(e, W, H, strict)
+            if ce:
+                clean_elems.append(ce)
+
+        slide_type = _map_page_type_to_slide_type(s.get("type") or "unknown")
+        slides_out.append({
+            "id": str(s.get("id") or uuid.uuid4()),
+            "elements": clean_elems,
+            "background": s.get("background"),
+            "animations": s.get("animations"),
+            "turningMode": s.get("turningMode"),
+            "sectionTag": s.get("sectionTag"),
+            "type": slide_type,
+        })
+
+    return {
+        "slides": slides_out,
+        "theme": theme,
+        "width": width,
+        "height": height,
+    }
+
+
+@app.post("/template/rewrite")
+async def template_rewrite(req: RewriteRequest):
+    """
+    将不规范的 slide/doc JSON 标准化为前端可用的模板 JSON。
+    可选：提供截图 image_b64，融合视觉识别结果以完善 textType 与页面类型。
+    返回：canonical 标准 JSON；model（如调用了视觉识别）；diagnostics（处理信息）。
+    """
+    # 选择输入
+    if req.doc_json is not None:
+        working_doc = req.doc_json
+    elif req.slide_json is not None:
+        working_doc = {"slides": [req.slide_json], "width": req.slide_json.get("width"), "height": req.slide_json.get("height")}
+    else:
+        raise HTTPException(status_code=400, detail="必须提供 doc_json 或 slide_json")
+
+    model_obj: Optional[Dict[str, Any]] = None
+    merged_slide: Optional[Dict[str, Any]] = None
+    diagnostics: Dict[str, Any] = {}
+
+    # 如果提供了截图，则先调用视觉模型进行角色识别，写回合并结果
+    tmp_img_path = None
+    if req.image_b64:
+        api_key = os.environ.get("ALI_API_KEY")
+        if not api_key:
+            raise HTTPException(status_code=500, detail="ALI_API_KEY 未配置，请在后端 .env 中设置")
+        img_b64 = req.image_b64
+        if "," in img_b64 and img_b64.startswith("data:"):
+            img_b64 = img_b64.split(",", 1)[1]
+        try:
+            img_bytes = base64.b64decode(img_b64)
+        except Exception:
+            raise HTTPException(status_code=400, detail="image_b64 不是合法的 base64 图片数据")
+        with NamedTemporaryFile(delete=False, suffix=".png") as tf:
+            tf.write(img_bytes)
+            tmp_img_path = tf.name
+
+        try:
+            prompt = build_prompt_for_template()
+            model_name = req.model or "qwen3-vl-235b-a22b-instruct"
+            model_text = infer_with_openai_compat(
+                api_key=api_key,
+                image_path_or_url=tmp_img_path,
+                prompt=prompt,
+                model=model_name,
+            )
+            if safe_json_loads:
+                parsed = safe_json_loads(model_text)  # type: ignore
+                if not isinstance(parsed, dict):
+                    body = parse_json_fenced(model_text) if parse_json_fenced else model_text
+                    parsed = json.loads(body)
+                model_obj = parsed  # type: ignore
+            else:
+                body = model_text
+                if model_text.strip().startswith("```") and parse_json_fenced:
+                    body = parse_json_fenced(model_text)  # type: ignore
+                model_obj = json.loads(body)
+
+            # 合并回第一张 slide（或单页）
+            if "slides" in working_doc and isinstance(working_doc["slides"], list) and working_doc["slides"]:
+                merged_slide = merge_template_types(working_doc["slides"][0], model_obj, iou_thresh=req.iou or 0.25)
+                working_doc["slides"][0] = merged_slide
+            else:
+                merged_slide = merge_template_types(working_doc, model_obj, iou_thresh=req.iou or 0.25)
+                working_doc = {"slides": [merged_slide], "width": working_doc.get("width"), "height": working_doc.get("height")}
+        except Exception as e:
+            logger.exception("视觉识别合并失败")
+            raise HTTPException(status_code=500, detail=f"视觉识别合并失败: {e}")
+        finally:
+            if tmp_img_path:
+                try:
+                    os.remove(tmp_img_path)
+                except Exception:
+                    pass
+
+    # 进行标准化重写
+    canonical = _canonicalize_doc(working_doc, strict=req.strict)
+    # 统计信息
+    diagnostics["slide_count"] = len(canonical.get("slides", []))
+    diagnostics["width"] = canonical.get("width")
+    diagnostics["height"] = canonical.get("height")
+    diagnostics["normalized_theme"] = bool(canonical.get("theme"))
+
+    return {
+        "canonical": canonical,
+        "model": model_obj,
+        "diagnostics": diagnostics,
+    }
 
 class AipptByIDRequest(BaseModel):
     id: str

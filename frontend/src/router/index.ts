@@ -13,6 +13,11 @@ const routes = [
     component: Editor
   },
   {
+    path: '/template-maker',
+    name: 'TemplateMaker',
+    component: () => import('@/views/TemplateMaker/index.vue')
+  },
+  {
     path: '/ppt',
     name: 'PPT',
     component: () => import('@/views/PPT/index.vue')

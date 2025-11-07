@@ -1,0 +1,243 @@
+[
+  {
+    "type": "cover",
+    "data": {
+      "title": "PIMS 标准化模板示例",
+      "text": "演示基于 AIPPT 数据驱动的模板渲染流程与要点。"
+    }
+  },
+  {
+    "type": "contents",
+    "data": {
+      "items": [
+        "项目概述",
+        "架构设计",
+        "核心功能",
+        "数据模型",
+        "接口规范",
+        "演示案例",
+        "性能与安全",
+        "后续规划"
+      ]
+    }
+  },
+  {
+    "type": "transition",
+    "data": {
+      "title": "项目概述",
+      "text": "介绍背景、目标与范围，为后续章节提供上下文。"
+    }
+  },
+  {
+    "type": "content",
+    "data": {
+      "title": "背景与目标",
+      "items": [
+        {
+          "kind": "text",
+          "title": "背景",
+          "text": "PIMS 项目面向企业级场景，强调高质量与持续交付。"
+        },
+        {
+          "kind": "text",
+          "title": "目标",
+          "text": "通过标准化模板与结构化数据，提高生成效率与一致性。"
+        },
+        {
+          "kind": "text",
+          "title": "范围",
+          "text": "覆盖前后端、模板制作、AI 生成、样例验证与发布流程。"
+        },
+        {
+          "kind": "text",
+          "title": "价值",
+          "text": "降低技术债务、提升可维护性、促进团队知识共享。"
+        }
+      ]
+    }
+  },
+  {
+    "type": "transition",
+    "data": {
+      "title": "架构设计",
+      "text": "采用 DDD 分层与前后端分离，保证扩展与稳定。"
+    }
+  },
+  {
+    "type": "content",
+    "data": {
+      "title": "DDD 分层",
+      "items": [
+        {
+          "kind": "text",
+          "title": "领域层",
+          "text": "承载核心业务规则与领域模型，确保业务一致性。"
+        },
+        {
+          "kind": "text",
+          "title": "应用层",
+          "text": "编排用例与事务，连接领域与接口层的协作。"
+        },
+        {
+          "kind": "text",
+          "title": "接口层",
+          "text": "面向用户与外部系统的交互接口，封装协议细节。"
+        },
+        {
+          "kind": "text",
+          "title": "基础设施层",
+          "text": "提供数据库、消息、第三方服务等技术支持能力。"
+        }
+      ]
+    }
+  },
+  {
+    "type": "content",
+    "data": {
+      "title": "关键指标图表",
+      "items": [
+        {
+          "kind": "chart",
+          "title": "接口响应时间 P95",
+          "text": "95 分位响应时间应 ≤ 500ms（目标）。",
+          "chartType": "bar",
+          "labels": ["Auth", "Users", "Orders", "Reports"],
+          "series": [
+            { "name": "P95(ms)", "data": [380, 420, 450, 480] }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "type": "content",
+    "data": {
+      "title": "图片示例",
+      "items": [
+        {
+          "kind": "image",
+          "title": "系统架构图",
+          "text": "图片项映射到模板的 itemFigure、subtitle、content。",
+          "src": "https://images.unsplash.com/photo-1555066931-4365d14bab8c?w=1200"
+        }
+      ]
+    }
+  },
+  {
+    "type": "transition",
+    "data": {
+      "title": "接口规范",
+      "text": "统一认证、错误处理、分页过滤与幂等保障。"
+    }
+  },
+  {
+    "type": "content",
+    "data": {
+      "title": "REST API 约定",
+      "items": [
+        {
+          "kind": "text",
+          "title": "认证与授权",
+          "text": "所有接口统一使用 JWT，基于角色进行细粒度授权。"
+        },
+        {
+          "kind": "text",
+          "title": "错误处理",
+          "text": "采用统一错误码与消息体结构，提升前后端协作效率。"
+        },
+        {
+          "kind": "text",
+          "title": "分页与过滤",
+          "text": "支持 page/size/sort/filter 等标准化查询参数。"
+        },
+        {
+          "kind": "text",
+          "title": "幂等性",
+          "text": "对重要写操作提供幂等保障，避免重复提交导致异常。"
+        }
+      ]
+    }
+  },
+  {
+    "type": "transition",
+    "data": {
+      "title": "演示案例",
+      "text": "展示模板匹配、图表渲染、图片映射的综合效果。"
+    }
+  },
+  {
+    "type": "content",
+    "data": {
+      "title": "案例要点",
+      "items": [
+        {
+          "kind": "text",
+          "title": "模板匹配",
+          "text": "根据 items 数量与类型选择最佳模板填充。"
+        },
+        {
+          "kind": "text",
+          "title": "图表映射",
+          "text": "labels/series→chart，支持 bar/line/pie 等常用图表。"
+        },
+        {
+          "kind": "text",
+          "title": "图片映射",
+          "text": "image.kind 映射到 itemFigure/subtitle/content 三类槽位。"
+        },
+        {
+          "kind": "text",
+          "title": "分页规则",
+          "text": "内容、目录、引用页均具备分页与偏移处理逻辑。"
+        }
+      ]
+    }
+  },
+  {
+    "type": "transition",
+    "data": {
+      "title": "性能与安全",
+      "text": "遵循质量标准：响应、资源、并发、安全四大维度。"
+    }
+  },
+  {
+    "type": "content",
+    "data": {
+      "title": "质量指标摘要",
+      "items": [
+        {
+          "kind": "text",
+          "title": "响应时间",
+          "text": "平均 ≤ 200ms；95 分位 ≤ 500ms。"
+        },
+        {
+          "kind": "text",
+          "title": "资源使用",
+          "text": "JVM 堆 ≤ 80%；CPU ≤ 70%；连接池 ≤ 80%。"
+        },
+        {
+          "kind": "text",
+          "title": "并发能力",
+          "text": "并发用户 ≥ 1000；API QPS ≥ 500；消息处理 ≥ 10000/s。"
+        },
+        {
+          "kind": "text",
+          "title": "安全标准",
+          "text": "输入验证、XSS/CSRF 防护、授权与敏感数据保护。"
+        }
+      ]
+    }
+  },
+  {
+    "type": "reference",
+    "data": {
+      "title": "参考资料",
+      "references": [
+        { "text": "DDD: Domain-Driven Design", "url": "https://dddcommunity.org" },
+        { "text": "REST Best Practices", "url": "https://restfulapi.net" },
+        { "text": "Vue + Pinia 指南", "url": "https://pinia.vuejs.org" }
+      ]
+    }
+  },
+  { "type": "end" }
+]

@@ -181,4 +181,61 @@ export default {
       body: formData,
     })
   },
+
+  // =========================
+  // 模板管理与自动标注接口（前端占位实现）
+  // =========================
+  /**
+   * 注册模板（通过URL）
+   * 后端尚未实现对应管理端点，这里按约定发送到 /admin/templates/register
+   * 若后端未提供，将由拦截器显示友好错误。
+   */
+  registerTemplate(
+    payload: { id: string; name?: string; json_url?: string; cover_url?: string },
+    adminToken: string
+  ): Promise<any> {
+    return axios.post(
+      `${SERVER_URL}/admin/templates/register`,
+      payload,
+      { headers: { 'X-Admin-Token': adminToken } }
+    )
+  },
+
+  /**
+   * 注册模板（上传文件）
+   * 发送 multipart/form-data 到 /admin/templates/register/upload
+   */
+  registerTemplateUpload(fd: FormData, adminToken: string): Promise<any> {
+    return axios.post(
+      `${SERVER_URL}/admin/templates/register/upload`,
+      fd,
+      { headers: { 'X-Admin-Token': adminToken } }
+    )
+  },
+
+  /**
+   * 删除模板
+   */
+  deleteTemplate(id: string, adminToken: string): Promise<any> {
+    return axios.delete(
+      `${SERVER_URL}/admin/templates/${encodeURIComponent(id)}`,
+      { headers: { 'X-Admin-Token': adminToken } }
+    )
+  },
+
+  /**
+   * 单页自动标注（图片+JSON）
+   * 发送 multipart/form-data 到 /tools/annotate_template
+   */
+  annotateTemplate(fd: FormData): Promise<any> {
+    return axios.post(`${SERVER_URL}/tools/annotate_template`, fd)
+  },
+
+  /**
+   * 批量自动标注（PDF+JSON）
+   * 发送 multipart/form-data 到 /tools/annotate_pdf
+   */
+  annotatePdf(fd: FormData): Promise<any> {
+    return axios.post(`${SERVER_URL}/tools/annotate_pdf`, fd)
+  },
 }

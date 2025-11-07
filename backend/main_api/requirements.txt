@@ -7,3 +7,5 @@ python-dotenv
 asyncclick
 pytest
 click
+Pillow
+requests

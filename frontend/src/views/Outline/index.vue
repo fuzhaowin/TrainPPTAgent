@@ -10,9 +10,14 @@
 
     <div class="aippt-dialog">
       <div class="header-section">
-        <button class="template-btn" @click="goToEditor">
-          <span class="btn-inner">制作模板</span>
-        </button>
+        <div class="header-actions">
+          <button class="template-btn" @click="goToTemplateMaker">
+            <span class="btn-inner">模板制作</span>
+          </button>
+          <button class="template-btn" @click="goToEditor">
+            <span class="btn-inner">PPT编辑器</span>
+          </button>
+        </div>
 
         <div class="brand">
           <h1 class="title">
@@ -214,6 +219,10 @@ const resetToSetup = () => {
 
 const goToEditor = () => {
   router.push('/editor')
+}
+
+const goToTemplateMaker = () => {
+  router.push('/template-maker')
 }
 
 const createOutline = async () => {
@@ -429,10 +438,17 @@ const uploadWordAndCreateOutline = async (file: File) => {
   margin-bottom: 50px;
   position: relative;
 
-  .template-btn {
+  .header-actions {
     position: absolute;
     top: 0;
     right: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .template-btn {
+    position: static;
     background: linear-gradient(135deg, #667eea 0%, #a855f7 100%);
     color: white;
     border: none;
@@ -929,9 +945,10 @@ const uploadWordAndCreateOutline = async (file: File) => {
 
 @media (max-width: 768px) {
   .header-section {
-    .template-btn {
+    .header-actions {
       position: static;
       margin-bottom: 24px;
+      justify-content: center;
     }
 
     .brand .title {
