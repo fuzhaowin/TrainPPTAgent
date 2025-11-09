@@ -2,6 +2,7 @@ import asyncio
 import json
 import re
 import os
+import base64
 import dotenv
 from pathlib import Path
 from fastapi import FastAPI, UploadFile, File

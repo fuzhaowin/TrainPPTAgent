@@ -9,3 +9,4 @@ pytest
 click
 Pillow
 requests
+openai>=1.0.0

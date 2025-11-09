@@ -384,7 +384,7 @@ class EmbeddingModel(object):
             self._impl = self._impl_openai_compatible  # 走OpenAI兼容
         elif self.provider == "doubao":
             api_key = os.getenv("DOUBAO_API_KEY")
-            assert api_key, "DOUBAO_API_KEY没有设置，无法使用豆包火山嵌入模型"
+            assert api_key, "DOUBAO_API_KEY没有设置，无法使用阿里云嵌入模型"
             self.client = OpenAI(
                 api_key=api_key,
                 base_url="https://ark.cn-beijing.volces.com/api/v3",
