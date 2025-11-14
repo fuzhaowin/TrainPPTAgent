@@ -144,7 +144,8 @@ const createPPT = async () => {
 
         if (data.type === 'status') {
           generationStatus.value = data.message
-        } else {
+        }
+        else {
           if (!hasNavigated) {
             router.push(`/editor?session_id=${sessionId.value}`)
             hasNavigated = true
@@ -166,7 +167,8 @@ const createPPT = async () => {
             slideStore.addSlide(generatedSlide)
           }
         }
-      } catch (err) {
+      }
+      catch (err) {
         // eslint-disable-next-line no-console
         console.error('JSON parse error or processing error:', err, 'Original string:', jsonStr)
       }
@@ -194,7 +196,8 @@ const createPPT = async () => {
       })
     }
     readStream()
-  } catch (e) {
+  }
+  catch (e) {
     loading.value = false
     mainStore.setGenerating(false)
     // eslint-disable-next-line no-console

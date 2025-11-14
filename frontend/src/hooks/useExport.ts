@@ -20,7 +20,7 @@ interface ExportImageConfig {
   fontEmbedCSS?: string
 }
 
-//代理下载地址
+// 代理下载地址
 const PROXY_ENDPOINT = '/api/proxy' 
 
 
@@ -41,7 +41,12 @@ export default () => {
   const exporting = ref(false)
 
   function isAbsoluteUrl(url: string) {
-    try { return new URL(url), true } catch { return false }
+    try {
+      return new URL(url), true 
+    }
+    catch {
+      return false 
+    }
   }
   
   function toProxyUrl(url: string) {
@@ -561,7 +566,8 @@ export default () => {
           }
           if (isBase64Image(el.src)) {
             options.data = el.src
-          } else {
+          }
+          else {
             // ★ 外链图片统一转 dataURL，走代理
             options.data = await getSafeImageDataURL(el.src)
           }

@@ -31,6 +31,14 @@ const convertFontSizePtToPx = (html: string, ratio: number) => {
   })
 }
 
+// 扩展的文本样式 pt->px 转换：同时处理 font-size、line-height、letter-spacing
+const convertTextStylesPtToPx = (html: string, ratio: number) => {
+  return html.replace(/(font-size|line-height|letter-spacing):\s*([\d.]+)pt/g, (match, prop, val) => {
+    const px = (parseFloat(val) * ratio).toFixed(1)
+    return `${prop}: ${px}px`
+  })
+}
+
 export default () => {
   const slidesStore = useSlidesStore()
   const { theme } = storeToRefs(useSlidesStore())
@@ -277,9 +285,16 @@ export default () => {
 
       let ratio = 96 / 72
       const width = json.size.width
+      const height = json.size.height
       
-      if (fixedViewport) ratio = 1000 / width
-      else slidesStore.setViewportSize(width * ratio)
+      if (fixedViewport) {
+        slidesStore.setViewportSize(1000)
+        slidesStore.setViewportRatio(height / width)
+        ratio = 1000 / width
+      }
+      else {
+        slidesStore.setViewportSize(width * ratio)
+      }
 
       slidesStore.setTheme({ themeColors: json.themeColors })
 
@@ -291,7 +306,7 @@ export default () => {
           background = {
             type: 'image',
             image: {
-              src: value.picBase64,
+              src: (value?.picBase64 && /^data:|^https?:|^blob:/.test(value.picBase64)) ? value.picBase64 : (value?.picBase64 ? `data:image/png;base64,${value.picBase64}` : ''),
               size: 'cover',
             },
           }
@@ -348,8 +363,11 @@ export default () => {
                 rotate: el.rotate,
                 defaultFontName: theme.value.fontName,
                 defaultColor: theme.value.fontColor,
-                content: convertFontSizePtToPx(el.content, ratio),
-                lineHeight: 1,
+                content: convertTextStylesPtToPx(el.content, ratio),
+                // 行高：PPT 默认更接近 1.5，这里使用 1.5，若解析到行高则优先使用
+                lineHeight: (('lineHeight' in el) && (el as any).lineHeight)
+                  ? Math.max(0.9, parseFloat(String((el as any).lineHeight)))
+                  : 1.5,
                 outline: {
                   color: el.borderColor,
                   width: +(el.borderWidth * ratio).toFixed(2),
@@ -372,7 +390,7 @@ export default () => {
               const element: PPTImageElement = {
                 type: 'image',
                 id: nanoid(10),
-                src: el.src,
+                src: (el?.src && /^data:|^https?:|^blob:/.test(el.src)) ? el.src : (el?.src ? `data:image/png;base64,${el.src}` : ''),
                 width: el.width,
                 height: el.height,
                 left: el.left,
@@ -417,7 +435,7 @@ export default () => {
               slide.elements.push({
                 type: 'image',
                 id: nanoid(10),
-                src: el.picBase64,
+                src: (el?.picBase64 && /^data:|^https?:|^blob:/.test(el.picBase64)) ? el.picBase64 : (el?.picBase64 ? `data:image/png;base64,${el.picBase64}` : ''),
                 width: el.width,
                 height: el.height,
                 left: el.left,
@@ -478,7 +496,7 @@ export default () => {
                   rotate: el.fill.value.rot,
                 } : undefined
 
-                const pattern: string | undefined = el.fill?.type === 'image' ? el.fill.value.picBase64 : undefined
+                const pattern: string | undefined = el.fill?.type === 'image' ? ((el.fill.value?.picBase64 && /^data:|^https?:|^blob:/.test(el.fill.value.picBase64)) ? el.fill.value.picBase64 : (el.fill.value?.picBase64 ? `data:image/png;base64,${el.fill.value.picBase64}` : undefined)) : undefined
 
                 const fill = el.fill?.type === 'color' ? el.fill.value : ''
                 
@@ -502,7 +520,7 @@ export default () => {
                     style: el.borderType,
                   },
                   text: {
-                    content: convertFontSizePtToPx(el.content, ratio),
+                    content: convertTextStylesPtToPx(el.content, ratio),
                     defaultFontName: theme.value.fontName,
                     defaultColor: theme.value.fontColor,
                     align: vAlignMap[el.vAlign] || 'middle',

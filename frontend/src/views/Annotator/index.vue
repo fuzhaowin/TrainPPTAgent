@@ -140,9 +140,15 @@ const jsonInputRef = ref<HTMLInputElement | null>(null)
 const jsonInputRef2 = ref<HTMLInputElement | null>(null)
 const pdfInputRef = ref<HTMLInputElement | null>(null)
 
-function triggerImagePick() { imageInputRef.value?.click() }
-function triggerJsonPick() { (jsonInputRef.value ?? jsonInputRef2.value)?.click() }
-function triggerPdfPick() { pdfInputRef.value?.click() }
+function triggerImagePick() {
+  imageInputRef.value?.click() 
+}
+function triggerJsonPick() {
+  (jsonInputRef.value ?? jsonInputRef2.value)?.click() 
+}
+function triggerPdfPick() {
+  pdfInputRef.value?.click() 
+}
 
 function onPickImage(e: Event) {
   const el = e.target as HTMLInputElement
@@ -176,9 +182,11 @@ async function runAnnotate() {
     const resp = await api.annotateTemplate(fd)
     resultJson.value = resp?.annotated ?? null
     visB64.value = resp?.viz_image_base64 ?? null
-  } catch (e) {
+  }
+  catch (e) {
     // 错误提示由 axios 拦截器处理
-  } finally {
+  }
+  finally {
     running.value = false
   }
 }
@@ -213,9 +221,11 @@ async function runBatchAnnotate() {
     resultJson.value = resp?.annotated ?? null
     batchPages.value = resp?.pages ?? null
     visB64.value = null // 批量暂不返回可视化图
-  } catch (e) {
+  }
+  catch (e) {
     // 错误提示由 axios 拦截器处理
-  } finally {
+  }
+  finally {
     batchRunning.value = false
   }
 }

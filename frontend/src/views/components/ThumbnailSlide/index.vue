@@ -61,6 +61,7 @@ provide(injectKeySlideScale, scale)
 }
 .elements {
   transform-origin: 0 0;
+  position: relative;
 }
 .background {
   width: 100%;

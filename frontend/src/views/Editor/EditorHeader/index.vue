@@ -224,11 +224,17 @@ const handleUpdateTitle = () => {
 }
 
 // 其它 UI 控制
-const setDialogForExport = (type: DialogForExportTypes) => { mainStore.setDialogForExport(type); mainMenuVisible.value = false }
-const openMarkupPanel = () => { mainStore.setMarkupPanelState(true) }
+const setDialogForExport = (type: DialogForExportTypes) => {
+  mainStore.setDialogForExport(type); mainMenuVisible.value = false 
+}
+const openMarkupPanel = () => {
+  mainStore.setMarkupPanelState(true) 
+}
 
 // "测试PPTist" → 选择模板文件
-const testPPTist = () => { mainMenuVisible.value = false; tmplPicker.value?.click() }
+const testPPTist = () => {
+  mainMenuVisible.value = false; tmplPicker.value?.click() 
+}
 
 // 模板文件选择完成
 const onPickTemplate = async (e: Event) => {
@@ -242,10 +248,12 @@ const onPickTemplate = async (e: Event) => {
     aipptInput.value = ''
     aipptDrawerVisible.value = true
     message.success('模板已载入，请粘贴 AIPPT JSON')
-  } catch (err) {
+  }
+  catch (err) {
     console.error(err)
     message.error('模板读取失败：请确认是有效的 JSON')
-  } finally {
+  }
+  finally {
     input.value = '' // 允许下次选择同名文件
   }
 }
@@ -346,8 +354,12 @@ const renderAIPPTNow = async () => {
 
   // 解析用户粘贴的 AIPPT 数据
   let raw: any
-  try { raw = JSON.parse(aipptInput.value || '{}') }
-  catch { return message.error('AIPPT JSON 解析失败，请检查格式') }
+  try {
+    raw = JSON.parse(aipptInput.value || '{}') 
+  }
+  catch {
+    return message.error('AIPPT JSON 解析失败，请检查格式') 
+  }
 
   try {
     aipptLoading.value = true
@@ -359,7 +371,7 @@ const renderAIPPTNow = async () => {
 
     // 设主题（若模板提供）
     if (templateTheme && typeof (slidesStore as any).setTheme === 'function') {
-      ;(slidesStore as any).setTheme(templateTheme)
+      (slidesStore as any).setTheme(templateTheme)
     }
 
     // 规范化 + 同义词映射 + 预检
@@ -371,7 +383,8 @@ const renderAIPPTNow = async () => {
       // 输入数据已经是 AIPPTSlide[] 格式，直接使用
       normalized = raw
       console.log('使用数组格式的 AIPPT 数据:', normalized)
-    } else {
+    }
+    else {
       // 输入数据是对象格式，需要转换
       normalized = normalizeToAipptSlides(raw)
       console.log('转换对象格式的 AIPPT 数据:', normalized)
@@ -390,13 +403,15 @@ const renderAIPPTNow = async () => {
     console.log('Generated slides:', outSlides)
     console.log('First slide structure:', outSlides[0])
 
-    applySlides(outSlides)          // ← 关键：统一用安全写入方法
+    applySlides(outSlides) // ← 关键：统一用安全写入方法
     aipptDrawerVisible.value = false
     message.success('渲染完成，已载入到画布')
-  } catch (err: any) {
+  }
+  catch (err: any) {
     console.error(err)
     message.error('渲染失败：' + (err?.message || '请检查模板类型标注与 AIPPT 结构是否匹配'))
-  } finally {
+  }
+  finally {
     aipptLoading.value = false
   }
 }

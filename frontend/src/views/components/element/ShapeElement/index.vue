@@ -51,11 +51,12 @@
             />
           </defs>
           <g 
-            :transform="`scale(${elementInfo.width / elementInfo.viewBox[0]}, ${elementInfo.height / elementInfo.viewBox[1]}) translate(0,0) matrix(1,0,0,1,0,0)`"
+            :transform="`scale(${scaleX}, ${scaleY}) translate(0,0) matrix(1,0,0,1,0,0)`"
           >
             <path 
               class="shape-path"
               vector-effect="non-scaling-stroke" 
+              fill-rule="nonzero"
               stroke-linecap="butt" 
               stroke-miterlimit="8"
               :d="elementInfo.path" 
@@ -87,7 +88,7 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, nextTick, ref, watch, useTemplateRef } from 'vue'
+import { computed, nextTick, ref, watch, useTemplateRef, onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useMainStore, useSlidesStore } from '@/store'
 import type { PPTShapeElement, ShapeText } from '@/types/slides'
@@ -193,6 +194,56 @@ const startEdit = () => {
   editable.value = true
   nextTick(() => prosemirrorEditorRef.value && prosemirrorEditorRef.value.focus())
 }
+
+// 安全viewBox与缩放计算，避免异常viewBox导致图形缩成点
+const safeViewBox = computed<[number, number]>(() => {
+  const vb = props.elementInfo.viewBox
+  const w = Array.isArray(vb) && Number(vb[0]) > 0 ? Number(vb[0]) : 1
+  const h = Array.isArray(vb) && Number(vb[1]) > 0 ? Number(vb[1]) : 1
+  return [w, h]
+})
+
+let measuredViewBox: [number, number] | null = null
+const measurePathBounds = () => {
+  try {
+    const d = props.elementInfo.path
+    if (!d) return
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    svg.setAttribute('width', '0')
+    svg.setAttribute('height', '0')
+    svg.style.position = 'absolute'
+    svg.style.left = '-10000px'
+    svg.style.top = '-10000px'
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+    path.setAttribute('d', d)
+    svg.appendChild(path)
+    document.body.appendChild(svg)
+    const bbox = path.getBBox()
+    document.body.removeChild(svg)
+    const w = Math.max(1, bbox.width)
+    const h = Math.max(1, bbox.height)
+    const [vw, vh] = safeViewBox.value
+    const tooLarge = vw > props.elementInfo.width * 50 || vh > props.elementInfo.height * 50
+    if (tooLarge) {
+      measuredViewBox = [w, h]
+    }
+  }
+  catch (_) {
+    // ignore
+  }
+}
+
+onMounted(measurePathBounds)
+watch(() => props.elementInfo.path, () => measurePathBounds())
+
+const scaleX = computed(() => {
+  const [vw] = measuredViewBox || safeViewBox.value
+  return props.elementInfo.width / Math.max(1, vw)
+})
+const scaleY = computed(() => {
+  const [, vh] = measuredViewBox || safeViewBox.value
+  return props.elementInfo.height / Math.max(1, vh)
+})
 </script>
 
 <style lang="scss" scoped>
@@ -236,7 +287,7 @@ const startEdit = () => {
   right: 0;
   display: flex;
   flex-direction: column;
-  padding: 10px;
+  padding: 0;
   line-height: 1.2;
   word-break: break-word;
   pointer-events: none;

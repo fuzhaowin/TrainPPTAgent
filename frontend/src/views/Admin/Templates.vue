@@ -103,7 +103,8 @@ const loadTemplates = async () => {
   try {
     const resp = await api.getTemplates()
     templates.value = resp?.data || []
-  } catch (e) {
+  }
+  catch (e) {
     // 已有全局拦截提示
   }
 }
@@ -112,7 +113,8 @@ const previewJson = async (id: string) => {
   try {
     const json = await api.getFileData(id)
     jsonPreview.value = { visible: true, id, content: JSON.stringify(json, null, 2) }
-  } catch (e) {
+  }
+  catch (e) {
     // 已有全局拦截提示
   }
 }
@@ -141,7 +143,8 @@ const submitRegisterByUrl = async () => {
     message.success('模板注册成功')
     registerByUrl.value = { id: '', name: '', json_url: '', cover_url: '' }
     await loadTemplates()
-  } catch (e) {
+  }
+  catch (e) {
     // 已有全局拦截提示
   }
 }
@@ -184,7 +187,8 @@ const submitRegisterByUpload = async () => {
     message.success('模板注册成功')
     registerByUpload.value = { id: '', name: '', json_file: null, json_text: '', cover_file: null }
     await loadTemplates()
-  } catch (e) {
+  }
+  catch (e) {
     // 已有全局拦截提示
   }
 }
@@ -198,7 +202,8 @@ const removeTemplate = async (id: string) => {
     await api.deleteTemplate(id, adminToken.value)
     message.success('模板已删除')
     await loadTemplates()
-  } catch (e) {
+  }
+  catch (e) {
     // 已有全局拦截提示
   }
 }

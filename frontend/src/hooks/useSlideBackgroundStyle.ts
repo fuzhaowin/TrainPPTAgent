@@ -19,17 +19,18 @@ export default (background: Ref<SlideBackground | undefined>) => {
     // 背景图模式
     // 包括：背景图、背景大小，是否重复
     else if (type === 'image' && image) {
-      const { src, size } = image
+      let { src, size } = image
+      if (src && !/^data:|^https?:|^blob:/.test(src)) src = `data:image/png;base64,${src}`
       if (!src) return { backgroundColor: '#fff' }
       if (size === 'repeat') {
         return {
-          backgroundImage: `url(${src}`,
+          backgroundImage: `url(${src})`,
           backgroundRepeat: 'repeat',
           backgroundSize: 'contain',
         }
       }
       return {
-        backgroundImage: `url(${src}`,
+        backgroundImage: `url(${src})`,
         backgroundRepeat: 'no-repeat',
         backgroundSize: size || 'cover',
       }

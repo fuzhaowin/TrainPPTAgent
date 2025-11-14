@@ -16,7 +16,8 @@ function unpackDetail(input: unknown): string {
         try {
           const inner = JSON.parse(d)
           return unpackDetail(inner)
-        } catch {
+        }
+        catch {
           return d
         }
       }
@@ -24,7 +25,8 @@ function unpackDetail(input: unknown): string {
       return JSON.stringify(obj)
     }
     return String(input ?? '')
-  } catch {
+  }
+  catch {
     return typeof input === 'string' ? input : '请求失败'
   }
 }

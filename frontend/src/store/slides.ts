@@ -150,7 +150,8 @@ export const useSlidesStore = defineStore('slides', {
         this.templates = result.data
         // eslint-disable-next-line no-console
         console.log('Templates updated in store:', JSON.stringify(this.templates, null, 2))
-      } else {
+      }
+      else {
         // eslint-disable-next-line no-console
         console.log('Templates not updated, result or result.data is falsy.')
       }

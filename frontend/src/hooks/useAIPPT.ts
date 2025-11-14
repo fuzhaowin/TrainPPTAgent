@@ -151,11 +151,13 @@ export default () => {
             (countChartSlots(b) - countChartSlots(a)) ||
             (countTextItemSlots(b) - countTextItemSlots(a))
           )
-      } else if (needChart > 0) {
+      }
+      else if (needChart > 0) {
         candidates = templates
           .filter(slide => countChartSlots(slide) > 0)
           .sort((a, b) => (countChartSlots(b) - countChartSlots(a)) || (countTextItemSlots(b) - countTextItemSlots(a)))
-      } else {
+      }
+      else {
         return getUseableTemplates(templates, needText, 'item')
       }
     }
@@ -889,11 +891,11 @@ export default () => {
               }
               return getNewTextElement({ el: el as any, text: `[${number}]`, maxLine: 1 })
             }
-            else {
-              // 没有对应的引用数据，标记为未使用
-              unusedElIds.push(el.id)
-              if (el.groupId) unusedGroupIds.push(el.groupId)
-            }
+            
+            // 没有对应的引用数据，标记为未使用
+            unusedElIds.push(el.id)
+            if (el.groupId) unusedGroupIds.push(el.groupId)
+            
           }
 
           // 处理PMID
@@ -903,10 +905,10 @@ export default () => {
             if (reference && reference.pmid) {
               return getNewTextElement({ el: el as any, text: `PMID: ${reference.pmid}`, maxLine: 1 })
             }
-            else {
-              unusedElIds.push(el.id)
-              if (el.groupId) unusedGroupIds.push(el.groupId)
-            }
+            
+            unusedElIds.push(el.id)
+            if (el.groupId) unusedGroupIds.push(el.groupId)
+            
           }
 
           // 处理URL
@@ -916,10 +918,10 @@ export default () => {
             if (reference && reference.url) {
               return getNewTextElement({ el: el as any, text: reference.url, maxLine: 2 })
             }
-            else {
-              unusedElIds.push(el.id)
-              if (el.groupId) unusedGroupIds.push(el.groupId)
-            }
+            
+            unusedElIds.push(el.id)
+            if (el.groupId) unusedGroupIds.push(el.groupId)
+            
           }
 
           // 处理DOI
@@ -929,10 +931,10 @@ export default () => {
             if (reference && reference.doi) {
               return getNewTextElement({ el: el as any, text: `DOI: ${reference.doi}`, maxLine: 1 })
             }
-            else {
-              unusedElIds.push(el.id)
-              if (el.groupId) unusedGroupIds.push(el.groupId)
-            }
+            
+            unusedElIds.push(el.id)
+            if (el.groupId) unusedGroupIds.push(el.groupId)
+            
           }
 
           return el

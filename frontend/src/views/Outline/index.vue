@@ -234,7 +234,7 @@ const createOutline = async () => {
 
   loading.value = true
   outlineCreating.value = true
-  //进度蒙版
+  // 进度蒙版
   showProcessingModal.value = true
 
   try {
@@ -271,7 +271,8 @@ const createOutline = async () => {
       })
     }
     readStream()
-  } catch (error) {
+  }
+  catch (error) {
     loading.value = false
     outlineCreating.value = false
     showProcessingModal.value = false
@@ -340,7 +341,8 @@ const uploadWordAndCreateOutline = async (file: File) => {
       })
     }
     readStream()
-  } catch (error) {
+  }
+  catch (error) {
     loading.value = false
     outlineCreating.value = false
     showProcessingModal.value = false

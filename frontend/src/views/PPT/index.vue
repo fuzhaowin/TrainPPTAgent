@@ -131,7 +131,7 @@ const createPPT = async () => {
       model: model.value,
       generateFromUploadedFile: generateFromUploadedFile.value,
       generateFromWebSearch: generateFromWebSearch.value,
-      sessionId: sessionId.value,      // 后端已兼容；或改名 user_id
+      sessionId: sessionId.value, // 后端已兼容；或改名 user_id
     })
 
     // 初始化图片池（mock 兜底）
@@ -188,11 +188,13 @@ const createPPT = async () => {
         for (const generatedSlide of slideGenerator) {
           if (isEmptySlide.value) {
             slideStore.setSlides([generatedSlide])
-          } else {
+          }
+          else {
             addSlidesFromDataToEnd([generatedSlide])
           }
         }
-      } catch (e) {
+      }
+      catch (e) {
         // 如果这条不是完整 JSON（比如后端按“文本片段”流），可以考虑改成累积 JSON 方案
         console.warn('解析 JSON 失败，跳过本条事件：', e, jsonText)
       }
@@ -231,7 +233,8 @@ const createPPT = async () => {
       })
 
     await pump()
-  } catch (e) {
+  }
+  catch (e) {
     loading.value = false
     mainStore.setGenerating(false)
     // eslint-disable-next-line no-console

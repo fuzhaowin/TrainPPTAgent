@@ -92,7 +92,17 @@ const changeCatalog = (id: string) => {
 }
 
 onMounted(() => {
-  changeCatalog(templates.value[0].id)
+  // 打开模板面板时，主动刷新模板列表，避免仅显示默认的内置模板
+  // 若后端不可用，则保留内置模板不影响使用
+  Promise.resolve(slidesStore.fetchTemplates())
+    .catch(() => {
+      // eslint-disable-next-line no-console
+      console.warn('刷新模板列表失败，使用内置模板')
+    })
+    .finally(() => {
+      const firstId = templates.value?.[0]?.id
+      if (firstId) changeCatalog(firstId)
+    })
 })
 </script>
 

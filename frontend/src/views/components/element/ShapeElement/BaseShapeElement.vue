@@ -42,10 +42,11 @@
             />
           </defs>
           <g 
-            :transform="`scale(${elementInfo.width / elementInfo.viewBox[0]}, ${elementInfo.height / elementInfo.viewBox[1]}) translate(0,0) matrix(1,0,0,1,0,0)`"
+            :transform="`scale(${scaleX}, ${scaleY}) translate(0,0) matrix(1,0,0,1,0,0)`"
           >
             <path 
               vector-effect="non-scaling-stroke" 
+              fill-rule="nonzero"
               stroke-linecap="butt" 
               stroke-miterlimit="8"
               :d="elementInfo.path" 
@@ -66,7 +67,7 @@
 </template>
 
 <script lang="ts" setup>
-import { computed } from 'vue'
+import { computed, onMounted, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import type { PPTShapeElement, ShapeText } from '@/types/slides'
 import { useSlidesStore } from '@/store'
@@ -108,6 +109,59 @@ const text = computed<ShapeText>(() => {
   if (!props.elementInfo.text) return defaultText
 
   return props.elementInfo.text
+})
+
+// 计算安全的viewBox尺寸，避免后端返回异常viewBox导致缩放比极小
+const safeViewBox = computed<[number, number]>(() => {
+  const vb = props.elementInfo.viewBox
+  const w = Array.isArray(vb) && Number(vb[0]) > 0 ? Number(vb[0]) : 1
+  const h = Array.isArray(vb) && Number(vb[1]) > 0 ? Number(vb[1]) : 1
+  return [w, h]
+})
+
+// 当path非常大且viewBox远大于元素尺寸时，测量未缩放路径的真实边界以校正缩放
+let measuredViewBox: [number, number] | null = null
+const measurePathBounds = () => {
+  try {
+    const d = props.elementInfo.path
+    if (!d) return
+    // 创建离屏SVG以测量未缩放路径的边界
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    svg.setAttribute('width', '0')
+    svg.setAttribute('height', '0')
+    svg.style.position = 'absolute'
+    svg.style.left = '-10000px'
+    svg.style.top = '-10000px'
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+    path.setAttribute('d', d)
+    svg.appendChild(path)
+    document.body.appendChild(svg)
+    const bbox = path.getBBox()
+    document.body.removeChild(svg)
+    const w = Math.max(1, bbox.width)
+    const h = Math.max(1, bbox.height)
+    // 仅当测得尺寸显著小于后端提供的viewBox时采用，以避免误判
+    const [vw, vh] = safeViewBox.value
+    const tooLarge = vw > props.elementInfo.width * 50 || vh > props.elementInfo.height * 50
+    if (tooLarge) {
+      measuredViewBox = [w, h]
+    }
+  }
+  catch (_) {
+    // 忽略测量异常，保留原始viewBox兜底
+  }
+}
+
+onMounted(measurePathBounds)
+watch(() => props.elementInfo.path, () => measurePathBounds())
+
+const scaleX = computed(() => {
+  const [vw] = measuredViewBox || safeViewBox.value
+  return props.elementInfo.width / Math.max(1, vw)
+})
+const scaleY = computed(() => {
+  const [, vh] = measuredViewBox || safeViewBox.value
+  return props.elementInfo.height / Math.max(1, vh)
 })
 </script>
 

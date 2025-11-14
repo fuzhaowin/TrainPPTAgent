@@ -82,7 +82,7 @@ export const useMainStore = defineStore('main', {
     showAIPPTDialog: false, // 打开AIPPT创建窗口
     isGenerating: false,
     sessionId: String(Date.now()),
-    isOutlineFromFile: false, //是否上传了文件，上传了文件，就根据文件生成ppt的大纲
+    isOutlineFromFile: false, // 是否上传了文件，上传了文件，就根据文件生成ppt的大纲
     generateFromUploadedFile: false, // 是否是依据上传的文件生成PPT
     generateFromWebSearch: false, // 是否是依据网络搜索生成PPT
   }),

@@ -191,7 +191,7 @@ watch(isHandleElement, () => {
 }
 .element-content {
   position: relative;
-  padding: 10px;
+  padding: 0;
   line-height: 1.5;
   word-break: break-word;
   cursor: move;

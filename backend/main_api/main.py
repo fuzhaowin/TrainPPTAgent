@@ -3,8 +3,10 @@ import json
 import re
 import os
 import base64
+from PIL import Image
 import dotenv
 from pathlib import Path
+import sys
 from fastapi import FastAPI, UploadFile, File
 import time
 import logging
@@ -16,15 +18,42 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi import UploadFile, File, HTTPException, Form
 from fastapi import FastAPI, HTTPException, Query, Request, Response
-from outline_client import A2AOutlineClientWrapper
-from content_client import A2AContentClientWrapper
+from fastapi import Header
+import shutil
+# 兼容包内运行（uvicorn main_api.main:app）与顶层运行（uvicorn main:app）两种方式
+try:
+    from .outline_client import A2AOutlineClientWrapper
+    from .content_client import A2AContentClientWrapper
+except Exception:
+    from outline_client import A2AOutlineClientWrapper
+    from content_client import A2AContentClientWrapper
 from typing import Any, Dict, Optional, List
 from tempfile import NamedTemporaryFile
-from template.qwen_vl_2dgrounding import (
-    build_prompt_for_template,
-    infer_with_openai_compat,
-    merge_template_types,
-)
+# 确保能找到 'template' 模块（既支持 /app/template 也支持仓库根目录 template）
+try:
+    from template.qwen_vl_2dgrounding import (
+        build_prompt_for_template,
+        infer_with_openai_compat,
+        merge_template_types,
+    )
+except Exception:
+    # 动态注入可能的候选路径
+    candidates = [
+        Path(__file__).resolve().parent,                # /app
+        Path(__file__).resolve().parent.parent,         # /app/..（若存在）
+        Path.cwd(),                                     # 当前工作目录
+    ]
+    for d in candidates:
+        try:
+            if (d / "template").exists() and str(d) not in sys.path:
+                sys.path.insert(0, str(d))
+        except Exception:
+            pass
+    from template.qwen_vl_2dgrounding import (
+        build_prompt_for_template,
+        infer_with_openai_compat,
+        merge_template_types,
+    )
 try:
     # 部分版本脚本提供 safe_json_loads / parse_json_fenced
     from template.qwen_vl_2dgrounding import safe_json_loads, parse_json_fenced  # type: ignore
@@ -250,15 +279,241 @@ async def get_data(filename: str):
 
 @app.get("/templates")
 async def get_templates():
-    templates = [
-        { "name": "红色通用", "id": "template_1", "cover": "/api/data/template_1.jpg" },
-        { "name": "蓝色通用", "id": "template_2", "cover": "/api/data/template_2.jpg" },
-        { "name": "紫色通用", "id": "template_3", "cover": "/api/data/template_3.jpg" },
-        { "name": "莫兰迪配色", "id": "template_4", "cover": "/api/data/template_4.jpg" },
-        # { "name": "图表", "id": "template_6", "cover": "/api/data/template_6.jpg" },
+    # 默认内置模板（兼容历史）
+    builtin = [
+        {"name": "红色通用", "id": "template_1", "cover": "/api/data/template_1.jpg"},
+        {"name": "蓝色通用", "id": "template_2", "cover": "/api/data/template_2.jpg"},
+        {"name": "紫色通用", "id": "template_3", "cover": "/api/data/template_3.jpg"},
+        {"name": "莫兰迪配色", "id": "template_4", "cover": "/api/data/template_4.jpg"},
     ]
 
-    return {"data": templates}
+    # 追加注册表中的模板（如果存在）
+    tpl_dir = Path("./template")
+    registry_path = tpl_dir / "registry.json"
+    extra: list[dict] = []
+    try:
+        if registry_path.exists():
+            with open(registry_path, "r", encoding="utf-8") as fh:
+                items = json.load(fh)
+                if isinstance(items, list):
+                    for it in items:
+                        tid = str(it.get("id") or "").strip()
+                        name = str(it.get("name") or tid)
+                        cover_file = str(it.get("cover") or "").strip()
+                        cover_url = f"/api/data/{cover_file}" if cover_file else (
+                            f"/api/data/{tid}.jpg" if (tpl_dir / f"{tid}.jpg").exists() else (
+                                f"/api/data/{tid}.png" if (tpl_dir / f"{tid}.png").exists() else ""
+                            )
+                        )
+                        extra.append({"name": name, "id": tid, "cover": cover_url})
+    except Exception as e:
+        logger.warning(f"读取模板注册表失败：{e}")
+
+    return {"data": builtin + extra}
+
+# =============================
+# 管理端模板注册与删除
+# =============================
+
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "").strip()
+TEMPLATE_DIR = Path("./template")
+REGISTRY_FILE = TEMPLATE_DIR / "registry.json"
+
+def _ensure_template_dir():
+    try:
+        TEMPLATE_DIR.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+
+def _require_admin(token: str | None):
+    if not ADMIN_TOKEN:
+        raise HTTPException(status_code=403, detail="管理端未配置 ADMIN_TOKEN")
+    if not token or token != ADMIN_TOKEN:
+        raise HTTPException(status_code=403, detail="管理员令牌不正确")
+
+def _load_registry() -> list[dict]:
+    _ensure_template_dir()
+    if not REGISTRY_FILE.exists():
+        return []
+    try:
+        with open(REGISTRY_FILE, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+            return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+def _save_registry(items: list[dict]):
+    _ensure_template_dir()
+    with open(REGISTRY_FILE, "w", encoding="utf-8") as fh:
+        json.dump(items, fh, ensure_ascii=False, indent=2)
+
+def _upsert_registry(id_: str, name: str | None, cover_file: str | None):
+    id_ = id_.strip()
+    items = _load_registry()
+    found = False
+    for it in items:
+        if str(it.get("id")) == id_:
+            it["name"] = name or it.get("name") or id_
+            if cover_file:
+                it["cover"] = cover_file
+            found = True
+            break
+    if not found:
+        items.append({"id": id_, "name": name or id_, "cover": cover_file or ""})
+    _save_registry(items)
+
+def _remove_registry(id_: str):
+    id_ = id_.strip()
+    items = _load_registry()
+    items = [it for it in items if str(it.get("id")) != id_]
+    _save_registry(items)
+
+class RegisterTemplateBody(BaseModel):
+    id: str
+    name: str | None = None
+    json_url: str
+    cover_url: str | None = None
+
+@app.post("/admin/templates/register")
+async def register_template(
+    body: RegisterTemplateBody,
+    admin_token: str | None = Header(None, alias="X-Admin-Token"),
+):
+    """
+    通过远程URL注册模板：下载 JSON 并保存到 ./template/{id}.json；封面可选。
+    需要请求头携带 X-Admin-Token。
+    """
+    _require_admin(admin_token)
+    tid = body.id.strip()
+    if not re.match(r"^[a-zA-Z0-9_-]+$", tid):
+        raise HTTPException(status_code=400, detail="模板ID格式不合法")
+    _ensure_template_dir()
+
+    # 下载并保存模板 JSON
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get(body.json_url)
+            resp.raise_for_status()
+            try:
+                tpl_obj = resp.json()
+            except Exception:
+                # 不是标准JSON，尝试纯文本后解析
+                tpl_text = resp.text
+                tpl_obj = json.loads(tpl_text)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"下载或解析JSON失败: {e}")
+
+    json_path = TEMPLATE_DIR / f"{tid}.json"
+    try:
+        with open(json_path, "w", encoding="utf-8") as fh:
+            json.dump(tpl_obj, fh, ensure_ascii=False, indent=2)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"保存模板JSON失败: {e}")
+
+    cover_file_name: str | None = None
+    # 可选封面下载
+    if body.cover_url:
+        try:
+            async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+                c = await client.get(body.cover_url)
+                c.raise_for_status()
+                ctype = c.headers.get("Content-Type", "")
+                ext = "jpg"
+                if "png" in ctype.lower():
+                    ext = "png"
+                cover_file_name = f"{tid}.{ext}"
+                cover_path = TEMPLATE_DIR / cover_file_name
+                with open(cover_path, "wb") as fh:
+                    fh.write(c.content)
+        except Exception as e:
+            # 不致命：仅记录警告
+            logger.warning(f"封面下载失败：{e}")
+
+    _upsert_registry(tid, body.name, cover_file_name)
+    return {"ok": True, "id": tid}
+
+@app.post("/admin/templates/register/upload")
+async def register_template_upload(
+    tpl_id: str = Form(...),
+    name: str | None = Form(None),
+    json_text: str | None = Form(None),
+    json_file: UploadFile | None = File(None),
+    cover: UploadFile | None = File(None),
+    admin_token: str | None = Header(None, alias="X-Admin-Token"),
+):
+    """
+    通过上传或粘贴注册模板：支持 json_text 或 json_file；可选上传封面。
+    """
+    _require_admin(admin_token)
+    tid = tpl_id.strip()
+    if not re.match(r"^[a-zA-Z0-9_-]+$", tid):
+        raise HTTPException(status_code=400, detail="模板ID格式不合法")
+    _ensure_template_dir()
+
+    # 读取 JSON
+    tpl_obj: dict | None = None
+    if json_text and json_text.strip():
+        try:
+            tpl_obj = json.loads(json_text.strip())
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"解析粘贴JSON失败: {e}")
+    elif json_file is not None:
+        try:
+            content_bytes = await json_file.read()
+            tpl_obj = json.loads(content_bytes.decode("utf-8"))
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"读取或解析上传的JSON失败: {e}")
+    else:
+        raise HTTPException(status_code=400, detail="必须提供 json_text 或 json_file")
+
+    # 保存 JSON
+    json_path = TEMPLATE_DIR / f"{tid}.json"
+    try:
+        with open(json_path, "w", encoding="utf-8") as fh:
+            json.dump(tpl_obj, fh, ensure_ascii=False, indent=2)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"保存模板JSON失败: {e}")
+
+    cover_file_name: str | None = None
+    if cover is not None:
+        try:
+            # 根据 MIME 推断扩展名
+            ctype = cover.content_type or "image/jpeg"
+            ext = "jpg"
+            if "png" in ctype.lower():
+                ext = "png"
+            cover_file_name = f"{tid}.{ext}"
+            cover_path = TEMPLATE_DIR / cover_file_name
+            data = await cover.read()
+            with open(cover_path, "wb") as fh:
+                fh.write(data)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"保存封面失败: {e}")
+
+    _upsert_registry(tid, name, cover_file_name)
+    return {"ok": True, "id": tid}
+
+@app.delete("/admin/templates/{tpl_id}")
+async def delete_template(
+    tpl_id: str,
+    admin_token: str | None = Header(None, alias="X-Admin-Token"),
+):
+    _require_admin(admin_token)
+    tid = tpl_id.strip()
+    _ensure_template_dir()
+    # 删除JSON
+    try:
+        (TEMPLATE_DIR / f"{tid}.json").unlink(missing_ok=True)
+    except Exception:
+        pass
+    # 删除可能的封面
+    for ext in ("jpg", "png"):
+        try:
+            (TEMPLATE_DIR / f"{tid}.{ext}").unlink(missing_ok=True)
+        except Exception:
+            pass
+    _remove_registry(tid)
+    return {"ok": True}
 
 # =============================
 # 模板初标注：调用 Qwen-VL 对页面进行类型与元素角色识别
@@ -317,7 +572,33 @@ async def template_annotate(req: AnnotateRequest):
                     body = parse_json_fenced(model_text)  # type: ignore
             model_obj = json.loads(body)
 
-        merged_slide = merge_template_types(req.slide_json, model_obj, iou_thresh=req.iou or 0.25)
+        # 兼容整文档或单页输入，统一抽取单页进行几何合并
+        slide_in = req.slide_json
+        if isinstance(slide_in.get("slides"), list):
+            # 默认选择第一页；若前端传入的是整文档结构，宽高沿用文档级配置
+            base_w = int(slide_in.get("width") or 0)
+            base_h = int(slide_in.get("height") or 0)
+            slide_in = dict(slide_in["slides"][0])
+            if base_w and not slide_in.get("width"):
+                slide_in["width"] = base_w
+            if base_h and not slide_in.get("height"):
+                slide_in["height"] = base_h
+
+        # 如果仍缺少画布尺寸，则从图片尺寸兜底，避免坐标缩放不一致
+        try:
+            with Image.open(tmp_img_path) as im:
+                img_w, img_h = im.size
+        except Exception:
+            img_w, img_h = 0, 0
+        if not slide_in.get("width") and img_w:
+            slide_in["width"] = img_w
+        if not slide_in.get("height") and img_h:
+            slide_in["height"] = img_h
+        # 同时注入兼容字段，供后续 2D grounding 计算相对坐标
+        slide_in["__canvas_width"] = int(slide_in.get("width") or 0)
+        slide_in["__canvas_height"] = int(slide_in.get("height") or 0)
+
+        merged_slide = merge_template_types(slide_in, model_obj, iou_thresh=req.iou or 0.25)
 
         return {
             "model": model_obj,
@@ -512,7 +793,17 @@ async def template_rewrite(req: RewriteRequest):
     if req.doc_json is not None:
         working_doc = req.doc_json
     elif req.slide_json is not None:
-        working_doc = {"slides": [req.slide_json], "width": req.slide_json.get("width"), "height": req.slide_json.get("height")}
+        # 兼容：有些调用方把整份 doc 误传到 slide_json，这里自动识别并按 doc 处理
+        if isinstance(req.slide_json.get("slides"), list):
+            working_doc = req.slide_json
+            # 兜底宽高，避免后续标准化缺省
+            if not working_doc.get("width"):
+                working_doc["width"] = req.slide_json.get("width") or 1280
+            if not working_doc.get("height"):
+                working_doc["height"] = req.slide_json.get("height") or 720
+        else:
+            # 正常：单页 slide
+            working_doc = {"slides": [req.slide_json], "width": req.slide_json.get("width"), "height": req.slide_json.get("height")}
     else:
         raise HTTPException(status_code=400, detail="必须提供 doc_json 或 slide_json")
 
@@ -582,6 +873,8 @@ async def template_rewrite(req: RewriteRequest):
     diagnostics["width"] = canonical.get("width")
     diagnostics["height"] = canonical.get("height")
     diagnostics["normalized_theme"] = bool(canonical.get("theme"))
+    # 每页元素计数，方便定位 elements 为空的原因
+    diagnostics["elements_per_slide"] = [len(s.get("elements", [])) for s in canonical.get("slides", [])]
 
     return {
         "canonical": canonical,

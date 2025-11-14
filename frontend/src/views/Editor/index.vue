@@ -36,9 +36,9 @@
 </template>
 
 <script lang="ts" setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
-import { useMainStore } from '@/store'
+import { useMainStore, useSlidesStore } from '@/store'
 import useGlobalHotkey from '@/hooks/useGlobalHotkey'
 import usePasteEvent from '@/hooks/usePasteEvent'
 
@@ -66,6 +66,19 @@ const remarkHeight = ref(40)
 
 useGlobalHotkey()
 usePasteEvent()
+
+// 确保编辑器中可见最新的模板列表（包括新注册的模板）
+const slidesStore = useSlidesStore()
+onMounted(async () => {
+  try {
+    await slidesStore.fetchTemplates()
+  }
+  catch (e) {
+    // 拉取失败不影响编辑器使用，仅在控制台提示
+    // eslint-disable-next-line no-console
+    console.warn('获取模板列表失败：', e)
+  }
+})
 </script>
 
 <style lang="scss" scoped>

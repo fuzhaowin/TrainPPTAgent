@@ -11,7 +11,8 @@ function unpackErrorText(raw: string): string {
       try {
         const inner = JSON.parse(d)
         return (inner.detail ?? inner.message ?? inner.error ?? d) as string
-      } catch {
+      }
+      catch {
         return d
       }
     }
@@ -19,7 +20,8 @@ function unpackErrorText(raw: string): string {
       return (d.detail ?? d.message ?? d.error ?? JSON.stringify(d)) as string
     }
     return JSON.stringify(obj)
-  } catch {
+  }
+  catch {
     // 如果是 Nginx/网关生成的 HTML 错误页，转换为友好文案
     const lower = raw.toLowerCase()
     if (lower.includes('<html') || lower.includes('gateway time-out') || lower.includes('nginx')) {

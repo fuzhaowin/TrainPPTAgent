@@ -42,14 +42,20 @@ ADDITIONAL_COLORS = [name for (name, _) in ImageColor.colormap.items()]
 ALL_COLORS = BASE_COLORS + ADDITIONAL_COLORS
 
 PAGE_TYPES = [
-    "cover",              # 封面：大标题 + 副标题/点缀
-    "title-content",      # 标题 + 正文段落或要点
-    "two-column",         # 左右双栏
-    "image-caption",      # 大图 + 配图说明
-    "section",            # 章节页
-    "thankyou",           # 致谢/结束
-    "list",               # 列表/要点
-    "unknown"
+    "cover",     #封面
+    "contents",  #目录
+    "transition",  #过渡页
+    "content",  #内容页
+    "reference",  #引用页
+    "end",  #结束页
+    # "cover",              # 封面：大标题 + 副标题/点缀
+    # "title-content",      # 标题 + 正文段落或要点
+    # "two-column",         # 左右双栏
+    # "image-caption",      # 大图 + 配图说明
+    # "section",            # 章节页
+    # "thankyou",           # 致谢/结束
+    # "list",               # 列表/要点
+    # "unknown"
 ]
 
 ROLE_TEXT = ["title", "subtitle", "content", "caption"]
@@ -217,7 +223,7 @@ PROMPT_TEMPLATE = """你是一个 PPT 版式与视觉元素分析器。请只输
 
 输出 JSON 的**唯一**合法结构如下（严格遵守键名与大小写）：
 {{
-  "page_type": "cover|title-content|two-column|image-caption|section|thankyou|list|unknown",
+  "page_type": "cover|contents|transition|content|reference|end",
   "elements": [
     {{
       "role": "title|subtitle|content|caption|image|chart|table|logo|decorative|shape",
@@ -230,8 +236,8 @@ PROMPT_TEMPLATE = """你是一个 PPT 版式与视觉元素分析器。请只输
 约束与规则：
 - 只检测版面中“信息承载”或“版式结构”的元素，背景花纹可标为 decorative 或忽略。
 - 文本框只使用 role: title / subtitle / content / caption 四种之一。
-- 如果是封面，通常有 title 与可选 subtitle；章节页可用 page_type=section。
-- 不确定时使用最保守的 page_type=unknown，role=content。
+ - 如果是封面，通常有 title 与可选 subtitle；章节页可用 page_type=transition。
+ - 不确定时使用最保守的 page_type=content，role=content。
 - 仅输出一个 JSON，对齐示例结构并且是合法 JSON（不要 markdown 围栏）。
 """
 
@@ -291,6 +297,8 @@ def merge_template_types(
     page_type = model_result.get("page_type")
     if page_type in PAGE_TYPES:
         raw_slide_json["type"] = page_type
+    else:
+        raw_slide_json["type"] = "content"
 
     # 2) 预计算每个元素的相对 bbox
     elems = raw_slide_json.get("elements", [])
